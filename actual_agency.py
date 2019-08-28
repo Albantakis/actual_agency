@@ -13,10 +13,8 @@ import sys
 import copy
 import subprocess as sp
 from pathlib import Path
+import ipywidgets as widgets
 
-# here you must set path to your working pyphi directory
-path = '/Users/bjornjuel/projects/Renzo_AA/actual_agency_old/src/pyphi'
-sys.path.append(path)
 import pyphi
 
 # Setting colors used in plotting functions
@@ -100,11 +98,18 @@ def getBrainActivity(data, n_agents=1, n_trials=64, n_nodes=8, n_sensors=2,n_hid
 
 def parseActivity(path,file,n_runs=30,n_agents=61,n_trials=64,world_height=35,n_nodes=8,n_sensors=2,n_hidden=4,n_motors=2):
     '''
-    Function description
+    Function for reading activity from MABE output of multiple runs (pkl) to array
         Inputs:
             inputs:
+                path: path to where the pkl output is stored
+                file: name of the file to load
+                n_agents: number of agents saved (generations / steplength between saves)
+                n_trials: number of trials pr agent. 2 x 16 x number of block types
+                world_height: the height of the complexiphi world
+
         Outputs:
             outputs:
+                all_activity: 4D array (runs x trials x time x nodes) containing all activity of the animat
     '''
     with open(os.path.join(path,file),'rb') as f:
         activity = pickle.load(f)
@@ -121,53 +126,95 @@ def parseActivity(path,file,n_runs=30,n_agents=61,n_trials=64,world_height=35,n_
 
 
 ### ACTTUAL CAUSATION ANALYSIS FUNCTIONS
-def get_purview(causal_link):
+def get_purview(causal_link,purview_type='union'):
     '''
-    Function description
+    This function gets the union of extended purviews of a causal link if the
+    causal link has that attribute. Otherwise it gets the union of the available purviews.
         Inputs:
             inputs:
+                causal_link: the list of irreducible causes of some account
+                union_of_purviews: indicator if the returned value should contain the union of purviews
         Outputs:
             outputs:
+                purview: the union of all purview elements across all (extended) cause purviews
     '''
-    extended_purview = causal_link._extended_purview
-    purview = set()
-    for p in extended_purview:
-        purview = purview.union(p)
+    # checking if causal link has the attribute _extended_purview
+    if hasattr(causal_link,'_extended_purview'):
+        extended_purview = causal_link._extended_purview
+    else:
+        extended_purview = causal_link.purview
+
+    if purview_type == 'union':
+        if type(extended_purview) == list and len(extended_purview)>1:
+            # creating the union of     purviews
+            purview = set()
+            for p in extended_purview:
+                purview = purview.union(p)
+        elif type(extended_purview) == tuple:
+            purview = extended_purview
+
+    # returning the output
     return tuple(purview)
+
 
 def get_actual_causes(animat, trial, t, cause_ixs, effect_ixs):
     '''
-    Function description
+    This function gets the irreducible causes of a transition
         Inputs:
-            inputs:
+            animat: animat object with brain activity
+            trial: the trial number under investigation (int)
+            t: the time of the second state in the transition (int)
+            cause_ixs: the indices of the elements that may form the cause purviews in the account
+            effect_ixs: the indices of the elements that constitute the occurrence under investigation
         Outputs:
-            outputs:
+            causes: the list of all causal links in the the account
     '''
+
+    # getting the transition under investigation and defining it with pyphi
     before_state, after_state = animat.get_transition(trial,t,False)
     transition = pyphi.actual.Transition(animat.brain, before_state, after_state, cause_ixs, effect_ixs)
+
+    # calculating the causal account and picking out the irreducible causes
     account = pyphi.actual.account(transition, direction=pyphi.Direction.CAUSE)
     causes = account.irreducible_causes
+
+    # returning output
     return causes
 
-def backtrack_cause(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, debug=False):
-    '''
-    Function description
-        Inputs:
-            inputs:
-        Outputs:
-            outputs:
-    '''
-    if ocurrence_ixs==None:
-        ocurrence_ixs = [2,3] if animat.n_nodes==8 else [1,2] # motor ixs
 
-    if animat.n_nodes==8:
-        cause_ixs = [0,1,4,5,6,7]
-        S1, S2, M1, M2, A, B, C, D = range(8)
-        label_dict = {key:x for key,x in zip(range(8),['S1', 'S2', 'M1', 'M2', 'A', 'B', 'C', 'D'])}
+def backtrack_cause(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
+    '''
+    Function for tracking the causes of an occurence back in time
+        Inputs:
+            animat: object where the animat brain and activity is defined
+            trial: the trial number under investigation (int)
+            t: the time of the second state in the transition (int)
+            occurence_ixs: the indices of the elements that constitute the occurrence under investigation
+            max_backsteps: the maximum number of steps we track the causes back
+            purview_type: name of the type of purview we use to track the causes
+        Outputs:
+            outputs: list of lists containing all cause purviews in the causal chain
+    '''
+
+    if not hasattr(animat,'node_labels'):
+        ### the following is specially designed for the analysis of Juel et al 2019 and should be generalized
+        if ocurrence_ixs==None:
+            ocurrence_ixs = [2,3] if animat.n_nodes==8 else [1,2] # motor ixs
+        if animat.n_nodes==8:
+            cause_ixs = [0,1,4,5,6,7]
+            S1, S2, M1, M2, A, B, C, D = range(8)
+            label_dict = {key:x for key,x in zip(range(8),['S1', 'S2', 'M1', 'M2', 'A', 'B', 'C', 'D'])}
+        else:
+            cause_ixs = [0,3,4,5,6]
+            S1, M1, M2, A, B, C, D = range(7)
+            label_dict = {key:x for key,x in zip(range(7),['S1', 'M1', 'M2', 'A', 'B', 'C', 'D'])}
     else:
-        cause_ixs = [0,3,4,5,6]
-        S1, M1, M2, A, B, C, D = range(7)
-        label_dict = {key:x for key,x in zip(range(7),['S1', 'M1', 'M2', 'A', 'B', 'C', 'D'])}
+        cause_ixs = list(animat.sensor_ixs) + list(animat.hidden_ixs)
+        if ocurrence_ixs==None:
+            ocurrence_ixs = animat.motor_ixs
+
+        if debug:
+            print('MAKE A PROPER label_dict FOR RUNNING DEBUG')
 
     causal_chain = []
 
@@ -183,7 +230,7 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, debug
             end=True
 
         # use the union of the purview of all actual causes as the next ocurrence (effect_ixs) in the backtracking
-        effect_ixs = [p for cause in causes for p in get_purview(cause)]
+        effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
         effect_ixs = list(set(effect_ixs))
 
         if animat.n_nodes==8:
@@ -209,27 +256,70 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, debug
             print('t=-1 reached.')
     return causal_chain
 
-def calc_causal_history(animat, trial, only_motor=True,debug=False):
+
+def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purview_type='union'):
     '''
-    Calculates animat's causal history, defined as the actual causes of
-    every state (only motor or not) across a trial.
+    Calculates the causal chain leading to an occurence
         Inputs:
-            inputs:
+            animat: object where the animat brain and activity is defined
+            trial: the trial number under investigation (int)
+            max_backsteps: the maximum number of steps we track the causes back (int). also the first timestep tracked back
+            occurence_ixs: the indices of the elements that constitute the occurrence under investigation
+            purview_type: name of the type of purview we use to track the causes
         Outputs:
-            outputs:
+            causal_chain: a list of backtracking patterns for each timestep in a trial
     '''
-    n_times = animat.brain_activity.shape[1]
-    if animat.n_nodes==8:
-        cause_ixs = [0,1,4,5,6,7]
-        effect_ixs = [2,3] if only_motor else [2,3,4,5,6,7]
-    else:
-        cause_ixs = [0,3,4,5,6]
-        effect_ixs = [1,2] if only_motor else [1,2,3,4,5,6]
 
     causal_chain = []
+    n_times = animat.brain_activity.shape[1]
 
-    bar = widgets.IntProgress(min=0,max=n_times-1)
-    display.display(bar)
+    if ocurrence_ixs is None:
+        occurence_ixs = animat.motor_ixs
+
+    print('Calculating causal chain for trial {}.'.format(trial))
+    aux = ran.rand()
+    if aux<0.02:
+        print('Have patience young padawan!')
+    elif aux<0.04:
+        print('have faith! It will finish eventually...')
+    elif aux<0.06:
+        print("this is a chicken, for your entertainment      (  ')>  ")
+    elif aux<0.08:
+        print('This might be a good time for a coffee')
+
+    for t in range(max_backsteps,n_times):
+        causal_chain.append(backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type))
+
+    return causal_chain
+
+
+
+def calc_causal_history(animat, trial, only_motor=True,debug=False):
+    '''
+    Calculates animat's direct cause history, defined as the direct causes of
+    every transition (only motor or not) across a trial.
+        Inputs:
+            animat: object where the animat brain and activity is defined
+            trial: the trial number under investigation (int)
+            only_motor: indicates whether the occurrence under investigation is only motors or the wholde network
+        Outputs:
+            direct_cause_history: list of lists of irreducible cause purviews
+    '''
+    if not hasattr(animat,'node_labels'):
+        ### the following is specially designed for the analysis of Juel et al 2019 and should be generalized
+        if animat.n_nodes==8:
+            cause_ixs = [0,1,4,5,6,7]
+            effect_ixs = [2,3] if only_motor else [2,3,4,5,6,7]
+        else:
+            cause_ixs = [0,3,4,5,6]
+            effect_ixs = [1,2] if only_motor else [1,2,3,4,5,6]
+    else:
+        cause_ixs = animat.sensor_ixs + animat.hidden_ixs
+        effect_ixs = animat.motor_ixs if only_motor else animat.motor_ixs+animat.hidden_ixs
+
+    direct_cause_history = []
+    n_times = animat.brain_activity.shape[1]
+
     for t in reversed(range(1,n_times)):
 
         before_state, after_state = animat.get_transition(trial,t,False)
@@ -242,11 +332,12 @@ def calc_causal_history(animat, trial, only_motor=True,debug=False):
             print_transition((before_state,after_state))
             print(causes)
 
-        causal_chain.append(causes)
-        bar.value +=1
-    return causal_chain
+        direct_cause_history.append(causes)
 
-def get_backtrack_array(causal_chain,n_nodes):
+    return direct_cause_history
+
+
+def get_alpha_cause_account_distribution(cause_account, n_nodes, animat):
     '''
     Function description
         Inputs:
@@ -254,23 +345,52 @@ def get_backtrack_array(causal_chain,n_nodes):
         Outputs:
             outputs:
     '''
-    def get_alpha_cause_account_distribution(cause_account, n_nodes):
-        alpha_dist = np.zeros(8)
-        for causal_link in cause_account:
+    if animat is not None:
+        n_nodes = animat.n_nodes
+
+    alpha_dist = np.zeros(n_nodes)
+    for causal_link in cause_account:
+        # checking if the causal link has an extended purview
+        if hasattr(causal_link,'_extended_purview'):
+            ext_purv = causal_link._extended_purview
+            # getting the alpha and the number of purviews over which it should be divided
             alpha = causal_link.alpha
-            n_purviews = len(causal_link._extended_purview)
+            n_purviews = len(ext_purv)
             alpha = alpha/n_purviews
-            for purview in causal_link._extended_purview:
+
+            # looping over purviews and dividing alpha to nodes
+            for purview in ext_purv:
                 purview_length = len(purview)
                 alpha_dist[list(purview)] += alpha/purview_length
+        else:
+            purview = list(causal_link.purview)
+            alpha = causal_link.alpha
+            purview_length = len(purview)
+            alpha_dist[list(purview)] += alpha/purview_length
+
+    if animat is None:
         alpha_dist = alpha_dist[[0,3,4,5,6]] if n_nodes==7 else alpha_dist[[0,1,4,5,6,7]]
-        return alpha_dist
+    else:
+        alpha_dist = alpha_dist[animat.sensor_ixs+animat.hidden_ixs]
+
+    return alpha_dist
+
+
+def get_backtrack_array(causal_chain,n_nodes,animat=None):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
 
     n_backsteps = len(causal_chain)
     BT = np.zeros((n_backsteps,n_nodes-2))
 
     for i, cause_account in enumerate(causal_chain):
-        BT[n_backsteps - (i+1),:] = get_alpha_cause_account_distribution(cause_account, n_nodes)
+        BT[n_backsteps - (i+1),:] = get_alpha_cause_account_distribution(cause_account, n_nodes, animat)
+
     return BT
 
 def get_causal_history_array(causal_chain,n_nodes,mode='alpha'): # OLD
@@ -572,12 +692,14 @@ def get_bootstrap_stats(data,n=500):
     return np.mean(fit,0), np.std(fit,0)
 
 
+
+
 ### PLOTTING FUNCTIONS
 
 def plot_ACanalysis(animat, world, trial, t, causal_chain=None, plot_state_history=False,
                     causal_history=None,causal_history_motor=None, plot_causal_account=True,
                     plot_state_transitions=True, n_backsteps=None):
-                    
+
     '''
     Function description
         Inputs:
@@ -976,7 +1098,7 @@ def load_dataset(path):
         Outputs:
             outputs:
     '''
-    
+
     print(os.listdir(path))
 
     data = []
