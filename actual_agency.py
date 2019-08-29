@@ -233,13 +233,17 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, purvi
         effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
         effect_ixs = list(set(effect_ixs))
 
-        if animat.n_nodes==8:
-            if (len(effect_ixs)==1 and (S1 in effect_ixs or S2 in effect_ixs)):
-                end=True
-            elif (len(effect_ixs)==2 and (S1 in effect_ixs and S2 in effect_ixs)):
-                end=True
+        if not hasattr(animat,'node_labels'):
+            if animat.n_nodes==8:
+                if (len(effect_ixs)==1 and (S1 in effect_ixs or S2 in effect_ixs)):
+                    end=True
+                elif (len(effect_ixs)==2 and (S1 in effect_ixs and S2 in effect_ixs)):
+                    end=True
+            else:
+                if (len(effect_ixs)==1 and (S1 in effect_ixs)):
+                    end=True
         else:
-            if (len(effect_ixs)==1 and (S1 in effect_ixs)):
+            if all([i in animat.sensor_labels for i in effect_ixs]):
                 end=True
 
         if debug:
@@ -282,9 +286,9 @@ def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purvie
         print('Have patience young padawan!')
     elif aux<0.04:
         print('have faith! It will finish eventually...')
-    elif aux<0.06:
+    elif aux<0.05:
         print("this is a chicken, for your entertainment      (  ')>  ")
-    elif aux<0.08:
+    elif aux<0.06:
         print('This might be a good time for a coffee')
 
     for t in range(max_backsteps,n_times):
@@ -386,7 +390,11 @@ def get_backtrack_array(causal_chain,n_nodes,animat=None):
     '''
 
     n_backsteps = len(causal_chain)
-    BT = np.zeros((n_backsteps,n_nodes-2))
+    if animat is None:
+        BT = np.zeros((n_backsteps,n_nodes-2))
+    else:
+        BT = np.zeros((n_backsteps,animat.n_nodes-animat.n_motors))
+
 
     for i, cause_account in enumerate(causal_chain):
         BT[n_backsteps - (i+1),:] = get_alpha_cause_account_distribution(cause_account, n_nodes, animat)

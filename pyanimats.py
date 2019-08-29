@@ -208,6 +208,7 @@ class Animat:
                 no output, just an update of the animat object
         '''
         if not len(node_labels)==self.n_sensors:
+            node_labels = []
             # standard labels for up to 10 nodes of each kind
             sensor_labels = ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10']
             motor_labels = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10']
