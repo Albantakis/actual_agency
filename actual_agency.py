@@ -1,4 +1,4 @@
-
+F
 import numpy as np
 import numpy.random as ran
 import scipy.io as sio
