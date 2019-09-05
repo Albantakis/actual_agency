@@ -1,4 +1,3 @@
-F
 import numpy as np
 import numpy.random as ran
 import scipy.io as sio
@@ -1133,3 +1132,168 @@ def load_dataset(path):
             inferred_CMs = pickle.load(f)
             data.append(inferred_CMs)
     return tuple(data)
+
+def state2num(state):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+    # send in a state as a list
+    num = 0
+    for i in range(len(state)):
+        num += (2**i)*state[-(i+1)]
+
+    # returns the number associated with the state
+    return num
+
+def num2state(num,n_nodes):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+
+    number = '{0:0' + str(n_nodes) + 'b}'
+    state = number.format(num)
+    state = [int(i) for i in state]
+
+    # returns the state
+    return state
+
+def get_unique_states(activity):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+    statenum = []
+    for trial in activity:
+        for state in trial:
+            statenum.append(int(state2num(state)))
+
+    uniques = list(set(statenum))
+
+    states = []
+    for n in uniques:
+        states.append(num2state(n,activity.shape[2]))
+
+    return states
+
+
+def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activity.pkl','LOD_data.pkl'],
+              gate_types=['deterministic','decomposable'], animat_params={}):
+      '''
+      Function description
+          Inputs:
+              inputs:
+          Outputs:
+              outputs:
+      '''
+
+    # defining dataframe
+    cols = ['Experiment','Run','agent',
+        'n_nodes','n_sensor','n_motor','n_hidden',
+        'unique transitions','unique states',
+        'TPM','CM','connected nodes','fitness',
+        'max Phi','mean Phi','max distinctions','mean distinctions',
+        'DC purview length','DC total alpha','DC hidden ratio',
+        'CC length','DC total alpha','DC hidden ratio']
+    df = pd.DataFrame([],columns = cols)
+
+    # looping over all experiments
+    exp_n = 0
+    for exp in experiment_list:
+
+        print('loading ' + exp)
+        # loading data
+        with open(path+'/'+exp+'/'+file_names[0],'rb') as f:
+            all_genomes = pickle.load(f)
+        # and activity
+        with open(path+'/'+exp+'/'+file_names[1],'rb') as f:
+            activity = pickle.load(f)
+        # and LOD data
+        with open(path+'/'+exp+'/'+file_names[2],'rb') as f:
+            LODs = pickle.load(f)
+
+        n_runs = len(all_genomes)
+        n_agents = len(all_genomes[0])
+
+        # going through all runs
+        for r in range(n_runs):
+            print('run #' + str(r))
+
+            # reformat the activity to a single list for each trial
+            brain_activity = agency.getBrainActivity(activity[r], n_agents,n_trials=n_trials)
+
+            # get number of nodes
+            n_hidden = (len(activity[r]['hidden_LIST'][0])+1)//2
+            n_motors = (len(activity[r]['output_LIST'][0])+1)//2
+            n_sensors = (len(activity[r]['input_LIST'][0])+1)//2
+            n_nodes = n_hidden+n_sensor+n_motor
+
+            # going through all agents
+            for a in range(n_agents):
+                print('agent #'+str(a))
+
+                # new row to be added to df
+                new_row = {}
+
+                # get genome
+                genome = agency.get_genome(all_genomes, r, a)
+                # parsing TPM, CM
+
+                print(gate_types[exp_n])
+                TPM, CM = genome2TPM_combined(genome,n_nodes, n_sensors, n_motors, gate_types[exp_n])
+
+                # pick out activity for agent
+                BA = brain_activity[a]
+
+                # defining the animat
+                animat = Animat(animat_params)
+                animat.saveBrainActivity(BA)
+                animat.saveBrain(TPM,CM)
+
+                # Find unique transitions and states
+                states = agency.get_unique_states(BA)
+                #transitions, ids = animat.get_unique_transitions() # DOES NOT WORK NOW
+                transitions = 'TBD'
+
+                # calculating fitness
+                fitness = LODs[r].iloc[[0]]['correct_AVE'][0]/(LODs[r].iloc[[0]]['incorrect_AVE'][0]+LODs[r].iloc[[0]]['correct_AVE'][0])
+
+                df2 = pd.DataFrame(new_row.update({'Experiment' : exp,
+                               'Run' : r,
+                               'agent' : a,
+                               'animat' : animat,
+                               'n_nodes' : n_nodes,
+                               'n_sensor' : n_sensors,
+                               'n_motor' : n_motors,
+                               'n_hidden' : n_hidden,
+                               'unique transitions' : transitions,
+                               'unique states' : states,
+                               'TPM' : TPM,
+                               'CM' : CM,
+                               'connected nodes' : sum(np.sum(CM,0)*np.sum(CM,1)>0),
+                               'fitness' : fitness,
+                               'max Phi' : 'TBD',
+                               'mean Phi' : 'TBD',
+                               'max distinctions' : 'TBD',
+                               'mean distinctions' : 'TBD',
+                               'DC purview length' : 'TBD',
+                               'DC total alpha' : 'TBD',
+                               'DC hidden ratio' : 'TBD',
+                               'CC length' : 'TBD',
+                               'DC total alpha' : 'TBD',
+                               'DC hidden ratio' : 'TBD',}
+                              ))
+                df.append(df2)
+        exp_n+=1
+
+    return df

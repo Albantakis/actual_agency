@@ -169,6 +169,7 @@ class Animat:
             for t in range(1,n_times):
                 # getting current transition and checking if it is new
                 transition = self.get_transition(trial, t, trim=True)
+                print(transition)
                 if transition not in unique_transitions:
                     unique_transitions.append(transition)
                     unique_ids.append((trial, t))

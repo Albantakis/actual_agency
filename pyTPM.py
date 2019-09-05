@@ -343,7 +343,6 @@ def get_states(n_nodes, convention='loli'):
     else:
         return states_holi
 
-return TPM, gate_TPMs, cm
 
 def genome2TPM_combined(genome,n_nodes=8, n_sensors=2, n_motors=2, gate_types=['deterministic','decomposable']):
     '''
@@ -357,12 +356,17 @@ def genome2TPM_combined(genome,n_nodes=8, n_sensors=2, n_motors=2, gate_types=['
 
     full_TPM = np.zeros((2**n_nodes, n_nodes, len(gate_types)))
     full_CM = np.zeros((n_nodes, n_nodes, len(gate_types)))
-    for i in range(len(gate_types)):
-        full_TPM[:,:,i], full_gates, full_CM[:,:,i] = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types[i])
+    if type(gate_types)==list:
+        for i in range(len(gate_types)):
+            full_TPM[:,:,i], full_gates, full_CM[:,:,i] = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types[i])
 
-    full_TPM = 1 - np.prod(1 - full_TPM, 2)
-    full_TPM = remove_motor_sensor_effects(full_TPM,n_sensors,n_motors,n_nodes)
-    full_CM = np.sum(full_CM,2)
+        full_TPM = 1 - np.prod(1 - full_TPM, 2)
+        full_TPM = remove_motor_sensor_effects(full_TPM,n_sensors,n_motors,n_nodes)
+        full_CM = np.sum(full_CM,2)
+    elif type(gate_types)==str:
+        full_TPM, full_gates, full_CM = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types)
+    else:
+        print('strange gate type')
 
     return full_TPM, full_CM
 
