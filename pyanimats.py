@@ -47,6 +47,7 @@ class Animat:
         # function for setting the current y position of the animat
         self.y = position
 
+
     def _getBrainActivity(self,data):
         '''
         Function for initializing the animat.
@@ -106,6 +107,32 @@ class Animat:
         return tuple(self.brain_activity[trial, t])
 
 
+
+    def get_unique_states(self, trial= None):
+        '''
+        Function for getting all unique transitions a system goes through in its lifetime.
+            Inputs:
+                trial: the number of a specific trial to investigate (int, if None then all trials are considered)
+            Outputs:
+                unique_states: a list of all unique states found
+        '''
+        if not hasattr(self, 'brain_activity'):
+            raise AttributeError('No brain activity saved yet.')
+
+        n_trials = self.brain_activity.shape[0]
+        n_times = self.brain_activity.shape[1]
+
+        trials = range(n_trials) if trial==None else [trial]
+        unique_states = []
+        for trial in trials:
+            for t in range(1,n_times):
+                state = self.get_state(trial, t)
+                if list(state) not in unique_states:
+                    unique_states.append(state)
+
+        return unique_states
+
+
     def get_transition(self, trial, t, trim=False):
         '''
         Function for picking out a specific transition: state(t-1) --> state(t).
@@ -148,7 +175,7 @@ class Animat:
                 trim: True if the transition should not contain motors in t-1 or sensors in t.
             Outputs:
                 unique_transitions: a list of all unique transitions found
-                unique_ixs: list of indices of the unique transitions' first occurence
+                unique_idxs: list of indices of the unique transitions' first occurence
         '''
 
         # Check if brain activity exists
@@ -159,7 +186,7 @@ class Animat:
         n_trials = self.brain_activity.shape[0]
         n_times = self.brain_activity.shape[1]
         unique_transitions = []
-        unique_ids = []
+        unique_idxs = []
 
         # defining the trials that will be searched
         trials = range(n_trials) if trial==None else [trial]
@@ -169,17 +196,17 @@ class Animat:
             for t in range(1,n_times):
                 # getting current transition and checking if it is new
                 transition = self.get_transition(trial, t, trim=True)
-                print(transition)
-                if transition not in unique_transitions:
+                #print(transition)
+                if list(transition) not in unique_transitions:
                     unique_transitions.append(transition)
-                    unique_ids.append((trial, t))
+                    unique_idxs.append((trial, t))
 
         # picking unique transitions without trimming is trim = False
         if not trim:
             unique_transitions = [self.get_transition(trial, t, trim=False) for trial,t in unique_ids]
 
         # reutrn outputs
-        return unique_transitions, unique_ids
+        return unique_transitions, unique_idxs
 
 
     def saveBrainActivity(self, brain_activity):
@@ -197,11 +224,11 @@ class Animat:
             assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
             self.brain_activity = np.array(brain_activity)
 
-    def saveUniqueState(self):
-        self.UniqueStates, self.StateNumbers = get_unique_states(self.brain_activity)
+    def saveUniqueStates(self):
+        self.unique_states = self.get_unique_states()
 
     def saveUniqueTransitions(self):
-        self.UniqueTransitions, self.TransitionNumbers = get_all_unique_transitions(self.brain_activity,self.n_sensors,self.n_hidden,self.n_motors)
+        self.unique_transitions, self.unique_idxs = self.get_unique_transitions()
 
 
     def saveBrain(self, TPM, cm, node_labels=[]):
@@ -274,6 +301,27 @@ class Animat:
                 motor_activity.append(-1)
         return motor_activity
 
+    def get_phi_from_subsystem(self, state, node_indices = (4,5,6,7)):
+
+        #calculate phi on specified subsystem,
+        #4,5,6,7 all hidden nodes of the animat
+        subsystem = pyphi.Subsystem(self.brain, state, node_indices)
+        phi = pyphi.compute.phi(subsystem)
+
+        return phi
+
+    def get_phi_from_complexes(self, state):
+        complexes = pyphi.compute.network.complexes(self.brain, state)
+        if len(complexes) == 0:
+            phi = 0.0
+        elif len(complexes) > 1:
+            phi = []
+            for complex_num in range(len(complexes)):
+                    phi.append(complexes[complex_num].phi)
+        else:
+            phi_table[run].append(complexes[0].phi)
+        return phi
+
     def plot_brain(self, state=None, ax=None):
         '''
         Function for plotting the brain of an animat.
@@ -287,6 +335,12 @@ class Animat:
         '''
         actual_agency.plot_brain(self.brain.cm, self.brain_graph, state, ax)
 
+def create_animat(run, agent, tpm, cm, brain_activity):
+
+    animat = Animat({})
+    animat.saveBrian(tpm, cm)
+    animat.saveBrainActivity(activity)
+    return animat
 
 class Block:
     '''
