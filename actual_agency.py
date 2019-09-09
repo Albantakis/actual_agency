@@ -15,6 +15,8 @@ from pathlib import Path
 import ipywidgets as widgets
 
 import pyphi
+import pyanimats as pa
+import pyTPM as pt
 
 # Setting colors used in plotting functions
 blue, red, green, grey, white = '#77b3f9', '#f98e81', '#8abf69', '#adadad', '#ffffff'
@@ -464,6 +466,28 @@ def get_occurrences(activityData,numSensors,numHidden,numMotors):
         y[:,:,:numSensors] = np.zeros(y[:,:,:numSensors].shape)
 
     return x, y
+
+def get_all_unique_transitions(activityData,numSensors=2,numHidden=4,numMotors=2):
+
+    x,y = get_occurrences(activityData,numSensors,numHidden,numMotors)
+
+    trials, times, nodes = x.shape
+
+    unique = []
+    transition_number = []
+
+    for tr in range(trials):
+        for t in range(times):
+            transition = (x[tr][t][:], y[tr][t][:])
+
+            trnum_curr = state2num(list(x[tr][t][:]) + (list(y[tr][t][:])))
+
+            if trnum_curr not in transition_number:
+                unique.append(transition)
+
+            transition_number.append(trnum_curr)
+    nums = np.array(transition_number).reshape(trials,times).astype(int).tolist()
+    return unique, nums
 
 
 
@@ -1184,18 +1208,13 @@ def get_unique_states(activity):
     for n in uniques:
         states.append(num2state(n,activity.shape[2]))
 
-    return states
+    nums = np.array(statenum).reshape(activity.shape[0],activity.shape[1]).astype(int).tolist()
+
+    return states, nums
 
 
 def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activity.pkl','LOD_data.pkl'],
               gate_types=['deterministic','decomposable'], animat_params={}):
-      '''
-      Function description
-          Inputs:
-              inputs:
-          Outputs:
-              outputs:
-      '''
 
     # defining dataframe
     cols = ['Experiment','Run','agent',
@@ -1230,70 +1249,85 @@ def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activi
             print('run #' + str(r))
 
             # reformat the activity to a single list for each trial
-            brain_activity = agency.getBrainActivity(activity[r], n_agents,n_trials=n_trials)
+            brain_activity = getBrainActivity(activity[r], n_agents,n_trials=n_trials)
 
             # get number of nodes
             n_hidden = (len(activity[r]['hidden_LIST'][0])+1)//2
             n_motors = (len(activity[r]['output_LIST'][0])+1)//2
             n_sensors = (len(activity[r]['input_LIST'][0])+1)//2
-            n_nodes = n_hidden+n_sensor+n_motor
+            n_nodes = n_hidden+n_sensors+n_motors
 
             # going through all agents
             for a in range(n_agents):
-                print('agent #'+str(a))
 
                 # new row to be added to df
                 new_row = {}
 
                 # get genome
-                genome = agency.get_genome(all_genomes, r, a)
-                # parsing TPM, CM
+                genome = get_genome(all_genomes, r, a)
 
-                print(gate_types[exp_n])
-                TPM, CM = genome2TPM_combined(genome,n_nodes, n_sensors, n_motors, gate_types[exp_n])
+                # parsing TPM, CM
+                TPM, CM = pt.genome2TPM_combined(genome,n_nodes, n_sensors, n_motors, gate_types[exp_n])
 
                 # pick out activity for agent
                 BA = brain_activity[a]
 
                 # defining the animat
-                animat = Animat(animat_params)
+                animat = pa.Animat(animat_params)
                 animat.saveBrainActivity(BA)
                 animat.saveBrain(TPM,CM)
 
                 # Find unique transitions and states
-                states = agency.get_unique_states(BA)
+                saveUniqueState()
                 #transitions, ids = animat.get_unique_transitions() # DOES NOT WORK NOW
                 transitions = 'TBD'
 
                 # calculating fitness
-                fitness = LODs[r].iloc[[0]]['correct_AVE'][0]/(LODs[r].iloc[[0]]['incorrect_AVE'][0]+LODs[r].iloc[[0]]['correct_AVE'][0])
-
-                df2 = pd.DataFrame(new_row.update({'Experiment' : exp,
-                               'Run' : r,
-                               'agent' : a,
-                               'animat' : animat,
-                               'n_nodes' : n_nodes,
-                               'n_sensor' : n_sensors,
-                               'n_motor' : n_motors,
-                               'n_hidden' : n_hidden,
-                               'unique transitions' : transitions,
-                               'unique states' : states,
-                               'TPM' : TPM,
-                               'CM' : CM,
-                               'connected nodes' : sum(np.sum(CM,0)*np.sum(CM,1)>0),
-                               'fitness' : fitness,
-                               'max Phi' : 'TBD',
-                               'mean Phi' : 'TBD',
-                               'max distinctions' : 'TBD',
-                               'mean distinctions' : 'TBD',
-                               'DC purview length' : 'TBD',
-                               'DC total alpha' : 'TBD',
-                               'DC hidden ratio' : 'TBD',
-                               'CC length' : 'TBD',
-                               'DC total alpha' : 'TBD',
-                               'DC hidden ratio' : 'TBD',}
-                              ))
-                df.append(df2)
-        exp_n+=1
-
-    return df
+                fitness = LODs[r]['correct_AVE'][a]/(LODs[r]['correct_AVE'][a]+LODs[r]['incorrect_AVE'][a])
+                if df.shape[0] ==0:
+                    df = pd.DataFrame({'Experiment' : exp,
+                           'Run' : r,
+                           'Agent' : a,
+                           'animat' : animat,
+                           'fitness' : fitness,
+                           'n_nodes' : n_nodes,
+                           'n_sensor' : n_sensors,
+                           'n_motor' : n_motors,
+                           'n_hidden' : n_hidden,
+                           'connected nodes' : sum(np.sum(CM,0)*np.sum(CM,1)>0),
+                           'max Phi' : ['TBD'],
+                           'mean Phi' : ['TBD'],
+                           'max distinctions' : ['TBD'],
+                           'mean distinctions' : ['TBD'],
+                           'DC purview length' : ['TBD'],
+                           'DC total alpha' : ['TBD'],
+                           'DC hidden ratio' : ['TBD'],
+                           'CC length' : ['TBD'],
+                           'DC total alpha' : ['TBD'],
+                           'DC hidden ratio' : ['TBD']
+                            })
+                else:
+                    df2 = pd.DataFrame({'Experiment' : exp,
+                           'Run' : r,
+                           'Agent' : a,
+                           'animat' : animat,
+                           'fitness' : fitness,
+                           'n_nodes' : n_nodes,
+                           'n_sensor' : n_sensors,
+                           'n_motor' : n_motors,
+                           'n_hidden' : n_hidden,
+                           'connected nodes' : sum(np.sum(CM,0)*np.sum(CM,1)>0),
+                           'max Phi' : ['TBD'],
+                           'mean Phi' : ['TBD'],
+                           'max distinctions' : ['TBD'],
+                           'mean distinctions' : ['TBD'],
+                           'DC purview length' : ['TBD'],
+                           'DC total alpha' : ['TBD'],
+                           'DC hidden ratio' : ['TBD'],
+                           'CC length' : ['TBD'],
+                           'DC total alpha' : ['TBD'],
+                           'DC hidden ratio' : ['TBD']
+                            })
+                    df = df.append(df2)
+    df2 = df.set_index(['Experiment','Run','Agent'])
+    return df2

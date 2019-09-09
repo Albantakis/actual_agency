@@ -7,7 +7,7 @@ import copy
 import pyphi
 import networkx as nx
 
-import actual_agency
+from actual_agency import *
 
 class Animat:
     '''
@@ -197,6 +197,12 @@ class Animat:
             assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
             self.brain_activity = np.array(brain_activity)
 
+    def saveUniqueState(self):
+        self.UniqueStates, self.StateNumbers = get_unique_states(self.brain_activity)
+
+    def saveUniqueTransitions(self):
+        self.UniqueTransitions, self.TransitionNumbers = get_all_unique_transitions(self.brain_activity,self.n_sensors,self.n_hidden,self.n_motors)
+
 
     def saveBrain(self, TPM, cm, node_labels=[]):
         '''
@@ -208,7 +214,7 @@ class Animat:
             Outputs:
                 no output, just an update of the animat object
         '''
-        if not len(node_labels)==self.n_sensors:
+        if not len(node_labels)==self.n_nodes:
             node_labels = []
             # standard labels for up to 10 nodes of each kind
             sensor_labels = ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10']
@@ -228,6 +234,8 @@ class Animat:
         # defining the network using pyphi
         network = pyphi.Network(TPM, cm, node_labels=node_labels)
         self.brain = network
+        self.TPM = TPM
+        self.cm = cm
 
         # defining a graph object based on the connectivity using networkx
         G = nx.from_numpy_matrix(cm, create_using=nx.DiGraph())
