@@ -5,6 +5,7 @@ import copy
 import pyphi
 from pathlib import Path
 import scipy.io as sio
+import pandas as pd
 
 def genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type='deterministic',states_convention='loli',remove_sensor_motor_effects=True):
     '''
@@ -131,6 +132,40 @@ def genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type='determinis
     # Return outputs
     return TPM, gate_TPMs, cm
 
+def genome2TPM_combined(genome,n_nodes=8, n_sensors=2, n_motors=2, gate_types=['deterministic','decomposable']):
+    '''
+    Function for parsing genomes containing multiple gate types.
+        Inputs:
+            n_nodes: number of nodes to calculate the full state state matrix for
+            convention: 'loli' (little-endian) or 'holi' (big-endian)) state labelling convention
+        Outputs:
+            states: state by node (2**n x n) array containing all binary states
+    '''
+
+    full_TPM = np.zeros((2**n_nodes, n_nodes, len(gate_types)))
+    full_CM = np.zeros((n_nodes, n_nodes, len(gate_types)))
+    if type(gate_types)==list:
+        for i in range(len(gate_types)):
+            full_TPM[:,:,i], full_gates, full_CM[:,:,i] = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types[i])
+
+        full_TPM = 1 - np.prod(1 - full_TPM, 2)
+        full_TPM = remove_motor_sensor_effects(full_TPM,n_sensors,n_motors,n_nodes)
+        full_CM = np.sum(full_CM,2)
+    elif type(gate_types)==str:
+        full_TPM, full_gates, full_CM = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types)
+    else:
+        print('strange gate type')
+
+    return full_TPM, full_CM
+
+def genome2TPM_from_csv(path, agent, n_nodes=8, n_sensors=2, n_motors=2, gate_type='deterministic',states_convention='loli',remove_sensor_motor_effects=True):
+    '''
+    Create a genome directly from a MABE csv output.
+    '''
+    genome_data = pd.read_csv(path)
+    genome = np.squeeze(np.array(np.matrix(genome_data['GENOME_root::_sites'][agent])))
+
+    return genome2TPM(genome, n_nodes, n_sensors, n_motors, gate_type,states_convention,remove_sensor_motor_effects)
 
 def reduce_degenerate_outputs(gate_TPM, outputs):
     '''
@@ -342,34 +377,6 @@ def get_states(n_nodes, convention='loli'):
         return states_loli
     else:
         return states_holi
-
-
-def genome2TPM_combined(genome,n_nodes=8, n_sensors=2, n_motors=2, gate_types=['deterministic','decomposable']):
-    '''
-    Function ffor parsing genomes containing multiple gate types.
-        Inputs:
-            n_nodes: number of nodes to calculate the full state state matrix for
-            convention: 'loli' (little-endian) or 'holi' (big-endian)) state labelling convention
-        Outputs:
-            states: state by node (2**n x n) array containing all binary states
-    '''
-
-    full_TPM = np.zeros((2**n_nodes, n_nodes, len(gate_types)))
-    full_CM = np.zeros((n_nodes, n_nodes, len(gate_types)))
-    if type(gate_types)==list:
-        for i in range(len(gate_types)):
-            full_TPM[:,:,i], full_gates, full_CM[:,:,i] = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types[i])
-
-        full_TPM = 1 - np.prod(1 - full_TPM, 2)
-        full_TPM = remove_motor_sensor_effects(full_TPM,n_sensors,n_motors,n_nodes)
-        full_CM = np.sum(full_CM,2)
-    elif type(gate_types)==str:
-        full_TPM, full_gates, full_CM = genome2TPM(genome, n_nodes=8, n_sensors=2, n_motors=2, gate_type=gate_types)
-    else:
-        print('strange gate type')
-
-    return full_TPM, full_CM
-
 
 ### THIS FUNCTION IS NOT TESTED ###
 def gates2TPM(gates,n_nodes,states_convention='loli',remove_sensor_motor_effects=False):
