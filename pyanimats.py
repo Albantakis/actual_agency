@@ -285,7 +285,7 @@ class Animat:
             Outputs:
                 no output, just calls the actua_acency function for plotting
         '''
-        actual_agency.plot_brain(self.brain.cm, self.brain_graph, state, ax)
+        ac_plot_brain(self.brain.cm, self.brain_graph, state, ax)
 
 
 class Block:

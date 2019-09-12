@@ -856,7 +856,7 @@ def plot_ACanalysis(animat, world, trial, t, causal_chain=None, plot_state_histo
         plt.xticks(range(animat.n_nodes),labels)
     # plt.tight_layout()
 
-def plot_brain(cm, graph=None, state=None, ax=None):
+def ac_plot_brain(cm, graph=None, state=None, ax=None):
     '''
     Function description
         Inputs:
