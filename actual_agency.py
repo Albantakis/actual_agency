@@ -1189,33 +1189,33 @@ def num2state(num,n_nodes):
     # returns the state
     return state
 
-def get_unique_states(activity):
-    '''
-    Function description
-        Inputs:
-            inputs:
-        Outputs:
-            outputs:
-    '''
-    statenum = []
-    for trial in activity:
-        for state in trial:
-            statenum.append(int(state2num(state)))
 
-    uniques = list(set(statenum))
+    def get_unique_states_binary(activity):
+        '''
+        Function description
+            Inputs:
+                inputs:
+            Outputs:
+                outputs:
+        '''
+        statenum = []
+        for trial in activity:
+            for state in trial:
+                statenum.append(int(state2num(state)))
 
-    states = []
-    for n in uniques:
-        states.append(num2state(n,activity.shape[2]))
+        uniques = list(set(statenum))
 
-    nums = np.array(statenum).reshape(activity.shape[0],activity.shape[1]).astype(int).tolist()
+        states = []
+        for n in uniques:
+            states.append(num2state(n,activity.shape[2]))
+
+        nums = np.array(statenum).reshape(activity.shape[0],activity.shape[1]).astype(int).tolist()
 
     return states, nums
 
 
-def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activity.pkl','LOD_data.pkl'],
+def pkl2df(path,experiment_list,n_trials=128,file_names=['version1_genome.pkl','version1_activity.pkl','version1_LOD_data.pkl'],
               gate_types=['deterministic','decomposable'], animat_params={}):
-
     # defining dataframe
     cols = ['Experiment','Run','agent',
         'n_nodes','n_sensor','n_motor','n_hidden',
@@ -1278,9 +1278,9 @@ def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activi
                 animat.saveBrain(TPM,CM)
 
                 # Find unique transitions and states
-                saveUniqueState()
+                animat.saveUniqueStates()
                 #transitions, ids = animat.get_unique_transitions() # DOES NOT WORK NOW
-                transitions = 'TBD'
+                animat.saveUniqueTransitions()
 
                 # calculating fitness
                 fitness = LODs[r]['correct_AVE'][a]/(LODs[r]['correct_AVE'][a]+LODs[r]['incorrect_AVE'][a])
@@ -1302,10 +1302,7 @@ def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activi
                            'DC purview length' : ['TBD'],
                            'DC total alpha' : ['TBD'],
                            'DC hidden ratio' : ['TBD'],
-                           'CC length' : ['TBD'],
-                           'DC total alpha' : ['TBD'],
-                           'DC hidden ratio' : ['TBD']
-                            })
+                           'CC length' : ['TBD']})
                 else:
                     df2 = pd.DataFrame({'Experiment' : exp,
                            'Run' : r,
@@ -1324,10 +1321,10 @@ def load_data(path,experiment_list,n_trials=128,file_names=['genome.pkl','activi
                            'DC purview length' : ['TBD'],
                            'DC total alpha' : ['TBD'],
                            'DC hidden ratio' : ['TBD'],
-                           'CC length' : ['TBD'],
-                           'DC total alpha' : ['TBD'],
-                           'DC hidden ratio' : ['TBD']
-                            })
+                           'CC length' : ['TBD']})
+
+
                     df = df.append(df2)
     df2 = df.set_index(['Experiment','Run','Agent'])
+
     return df2
