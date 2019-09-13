@@ -104,7 +104,7 @@ class Animat:
             raise AttributeError('No brain activity saved yet.')
 
         # return state as a tuple (can be used for calculating Phi)
-        return tuple(self.brain_activity[trial, t])
+        return tuple(self.brain_activity[trial, t].astype(int))
 
 
 
@@ -125,12 +125,40 @@ class Animat:
         trials = range(n_trials) if trial==None else [trial]
         unique_states = []
         for trial in trials:
-            for t in range(1,n_times):
+            for t in range(0,n_times):
                 state = self.get_state(trial, t)
-                if list(state) not in unique_states:
+                if state not in unique_states:
                     unique_states.append(state)
 
         return unique_states
+
+
+    def enumerate_states(self):
+        '''
+        Function for enumerating states, to avoid calculating causal accounts too many times
+            Inputs:
+
+            Outputs:
+                no output, just an update of the Animat object
+        '''
+        # Check if brain activity exists
+        if not hasattr(self, 'brain_activity'):
+            raise AttributeError('No brain activity saved yet.')
+
+        n_trials = self.brain_activity.shape[0]
+        n_times = self.brain_activity.shape[1]
+        enumerated_states = []
+
+        # looping through trials and time points
+        for trial in range(n_trials):
+            for t in range(n_times):
+                # getting current transition and checking if it is new
+                state = self.get_state(trial, t)
+                n = state2num(list(state))
+                # adding transition idendtifier to list
+                enumerated_states.append(n)
+
+        self.enumerated_states = enumerated_states
 
 
     def get_transition(self, trial, t, trim=False):
@@ -186,6 +214,7 @@ class Animat:
         n_trials = self.brain_activity.shape[0]
         n_times = self.brain_activity.shape[1]
         unique_transitions = []
+        unique_transitions_compressed = []
         unique_idxs = []
 
         # defining the trials that will be searched
@@ -195,18 +224,44 @@ class Animat:
         for trial in trials:
             for t in range(1,n_times):
                 # getting current transition and checking if it is new
-                transition = self.get_transition(trial, t, trim=True)
-                #print(transition)
-                if list(transition) not in unique_transitions:
+                transition = self.get_transition(trial, t, trim)
+                if transition not in unique_transitions:
                     unique_transitions.append(transition)
                     unique_idxs.append((trial, t))
 
         # picking unique transitions without trimming is trim = False
         if not trim:
-            unique_transitions = [self.get_transition(trial, t, trim=False) for trial,t in unique_ids]
+            unique_transitions = [self.get_transition(trial, t, trim=False) for trial,t in unique_idxs]
 
         # reutrn outputs
         return unique_transitions, unique_idxs
+
+    def enumerate_transitions(self):
+        '''
+        Function for enumerating transitions, to avoid calculating causal accounts too many times
+            Inputs:
+
+            Outputs:
+                no output, just an update of the Animat object
+        '''
+
+        # Check if brain activity exists
+        if not hasattr(self, 'brain_activity'):
+            raise AttributeError('No brain activity saved yet.')
+
+        n_trials = self.brain_activity.shape[0]
+        n_times = self.brain_activity.shape[1]
+        enumerated_transitions = []
+
+        # looping through trials and time points
+        for trial in range(n_trials):
+            for t in range(1,n_times):
+                # getting current transition and checking if it is new
+                transition = self.get_transition(trial, t, trim=False)
+                # adding transition idendtifier to list
+                enumerated_transitions.append(state2num(list(transition[0])+list(transition[1])))
+
+        self.enumerated_transitions = enumerated_transitions
 
 
     def saveBrainActivity(self, brain_activity):
@@ -225,10 +280,18 @@ class Animat:
             self.brain_activity = np.array(brain_activity)
 
     def saveUniqueStates(self):
-        self.unique_states = self.get_unique_states()
+        unique_states = self.get_unique_states()
+        self.unique_states = unique_states
+        self.enumerate_states()
+        self.num_unique_states = len(unique_states)
 
     def saveUniqueTransitions(self):
-        self.unique_transitions, self.unique_idxs = self.get_unique_transitions()
+        self.unique_transitions, self.unique_idxs = self.get_unique_transitions(trim=False)
+        self.enumerate_transitions()
+        self.num_unique_transitions = len(self.unique_transitions)
+
+    def save_unique_causal_links(self):
+        self.causal_links = get_all_causal_links(self)
 
 
     def saveBrain(self, TPM, cm, node_labels=[]):
@@ -321,6 +384,41 @@ class Animat:
         else:
             phi_table[run].append(complexes[0].phi)
         return phi
+
+    def save_system_irreducibility_analysis(self):
+        '''
+
+            Inputs:
+
+            Outputs:
+        '''
+
+        sias = {}
+        for s in self.unique_states:
+            sia = pyphi.compute.complexes(self.brain,s)
+            if len(sia)==0:
+                sias.update({state2num(s) : None})
+            else:
+                sias.update({state2num(s) : sia})
+        self.sias = sias
+
+
+    def save_major_complex(self):
+        '''
+
+            Inputs:
+
+            Outputs:
+        '''
+
+        MCs = {}
+        for s in self.unique_states:
+            MC = pyphi.compute.major_complex(self.brain,s)
+            if MC.phi==0:
+                MCs.update({state2num(s) : None})
+            else:
+                MCs.update({state2num(s) : MC})
+        self.MCs = MCs
 
     def plot_brain(self, state=None, ax=None):
         '''
