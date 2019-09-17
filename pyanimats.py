@@ -278,6 +278,8 @@ class Animat:
         else: ## if brain activity is array form
             assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
             self.brain_activity = np.array(brain_activity)
+            self.n_trials = brain_activity.shape[0]
+            self.n_timesteps = brain_activity.shape[1]
 
     def saveUniqueStates(self):
         unique_states = self.get_unique_states()

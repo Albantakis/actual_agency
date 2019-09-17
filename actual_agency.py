@@ -22,141 +22,42 @@ import pyTPM as pt
 blue, red, green, grey, white = '#77b3f9', '#f98e81', '#8abf69', '#adadad', '#ffffff'
 purple, yellow = '#d279fc', '#f4db81'
 
-### MABE RELATED FUNCTIONS
-def parseTPM(TPM_jory):
-    '''
-    Function for parsing the output from the mabe TPMworld into a readable format
-        Inputs:
-            TPM_jory: (unpickled) csv output from mabe TPM-world
-        Outputs:
-            allgates: A list of lists (num_agents long) containing all gates in the agents genome
-    '''
-    start = '{'
-    end = '}'
-    split = r'\r\n'
-    s = str(TPM_jory)
-    a=True
+### GENERAL FUNCTIONS USED BY ELSEWHERE
 
-    s_byanimats = s.split(split)[1:-1]
-    allgates = []
-    for animat in s_byanimats:
-        gates = []
-        a = True
-        while a:
-            idx1 = str(animat).find(start)
-            idx2 = str(animat).find(end)+1
-            if idx1==-1:
-                a = False
-            else:
-                gate_string = animat[idx1:idx2]
-                gates.append(eval(gate_string))
-                animat = animat[idx2+1:]
-        allgates.append(gates)
-    return allgates
-
-def get_genome(genomes, run, agent):
-    genome = genomes[run]['GENOME_root::_sites'][agent]
-    genome = np.squeeze(np.array(np.matrix(genome)))
-    return genome
-
-def getBrainActivity(data, n_agents=1, n_trials=64, n_nodes=8, n_sensors=2,n_hidden=4,n_motors=2):
+def state2num(state):
     '''
-    Function for generating a activity matrices for the animats given outputs from mabe
-        Inputs:
-            data: a pandas object containing the mabe output from activity recording
-            n_agents: number of agents recorded
-            n_trials: number of trials for each agent
-            n_nodes: total number of nodes in the agent brain (sensors+motrs+hidden)
-            n_sensors: number of sensors in the agent brain
-            n_hidden: number of hidden nodes between the sensors and motors
-            n_motors: number of motors in the agent brain
-        Outputs:
-            brain_activity: a matrix with the timeseries of activity for each trial of every agent. Dimensions(agents)
-    '''
-    print('Creating activity matrix from MABE output...')
-    n_transitions = 34
-    brain_activity = np.zeros((n_agents,n_trials,1+n_transitions,n_nodes))
-
-    for a in list(range(n_agents)):
-        for i in list(range(n_trials)):
-            for j in list(range(n_transitions+1)):
-                ix = a*n_trials*n_transitions + i*n_transitions + j
-                if j==0:
-                    sensor = np.fromstring(str(data['input_LIST'][ix]), dtype=int, sep=',')[:n_sensors]
-                    hidden = np.zeros(n_hidden)
-                    motor = np.zeros(n_motors)
-                elif j==n_transitions:
-                    sensor = np.zeros(n_sensors)
-                    hidden = np.fromstring(data['hidden_LIST'][ix-1], dtype=int, sep=',')
-                    motor = np.fromstring(data['output_LIST'][ix-1], dtype=int, sep=',')
-                else:
-                    sensor = np.fromstring(str(data['input_LIST'][ix]), dtype=int, sep=',')[:n_sensors]
-                    hidden = np.fromstring(data['hidden_LIST'][ix-1], dtype=int, sep=',')
-                    motor = np.fromstring(data['output_LIST'][ix-1], dtype=int, sep=',')
-                nodes = np.r_[sensor, motor, hidden]
-                brain_activity[a,i,j,:] = nodes
-    return brain_activity
-
-def parseActivity(path,file,n_runs=30,n_agents=61,n_trials=64,world_height=35,n_nodes=8,n_sensors=2,n_hidden=4,n_motors=2):
-    '''
-    Function for reading activity from MABE output of multiple runs (pkl) to array
+    Function description
         Inputs:
             inputs:
-                path: path to where the pkl output is stored
-                file: name of the file to load
-                n_agents: number of agents saved (generations / steplength between saves)
-                n_trials: number of trials pr agent. 2 x 16 x number of block types
-                world_height: the height of the complexiphi world
-
         Outputs:
             outputs:
-                all_activity: 4D array (runs x trials x time x nodes) containing all activity of the animat
     '''
-    with open(os.path.join(path,file),'rb') as f:
-        activity = pickle.load(f)
+    # send in a state as a list
+    num = 0
+    for i in range(len(state)):
+        num += (2**i)*state[-(i+1)]
 
-    all_activity = np.zeros((n_runs,n_agents,n_trials,world_height,n_nodes),dtype=int)
-    for i in range(n_runs):
-        print('{}/{}'.format(i+1,n_runs))
-        all_activity[i,:,:,:,:] = getBrainActivity(activity[i],n_agents,n_trials,n_nodes,n_sensors,n_hidden,n_motors)
+    # returns the number associated with the state
+    return int(num)
 
-    with open(os.path.join(path,'activity_array.pkl'),'wb') as f:
-        pickle.dump(all_activity, f)
+def num2state(num,n_nodes):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
 
-    return all_activity
+    number = '{0:0' + str(n_nodes) + 'b}'
+    state = number.format(num)
+    state = [int(i) for i in state]
+
+    # returns the state
+    return state
 
 
 ### ACTTUAL CAUSATION ANALYSIS FUNCTIONS
-def get_purview(causal_link,purview_type='union'):
-    '''
-    This function gets the union of extended purviews of a causal link if the
-    causal link has that attribute. Otherwise it gets the union of the available purviews.
-        Inputs:
-            inputs:
-                causal_link: the list of irreducible causes of some account
-                union_of_purviews: indicator if the returned value should contain the union of purviews
-        Outputs:
-            outputs:
-                purview: the union of all purview elements across all (extended) cause purviews
-    '''
-    # checking if causal link has the attribute _extended_purview
-    if hasattr(causal_link,'_extended_purview'):
-        extended_purview = causal_link._extended_purview
-    else:
-        extended_purview = causal_link.purview
-
-    if purview_type == 'union':
-        if type(extended_purview) == list and len(extended_purview)>1:
-            # creating the union of     purviews
-            purview = set()
-            for p in extended_purview:
-                purview = purview.union(p)
-        elif type(extended_purview) == tuple:
-            purview = extended_purview
-
-    # returning the output
-    return tuple(purview)
-
 
 def get_actual_causes(animat, trial, t, cause_ixs, effect_ixs):
     '''
@@ -183,7 +84,9 @@ def get_actual_causes(animat, trial, t, cause_ixs, effect_ixs):
     return causes
 
 def get_all_causal_links(animat):
+    '''
 
+    '''
     # calulate causal account for all unique transitions
     direct_causes = {}
     for t in animat.unique_transitions:
@@ -196,56 +99,19 @@ def get_all_causal_links(animat):
     return direct_causes
 
 
-
-def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
+def get_union_of_causes(animat,t,ocurrence_ixs):
     '''
-    Brute force calculation of causal chain
+
     '''
-    causal_chain = []
+    full_cl = animat.causal_links[animat.enumerated_transitions[t]].causal_links
+    causes = ()
+    for cl in full_cl:
+        if set(cl.mechanism).issubset(ocurrence_ixs):
+            # adding cause purview to union of causes
+            purview = cl.purview
+            causes += purview
 
-    backstep = 1
-    end = False
-    effect_ixs = ocurrence_ixs
-    cause_ixs = (0,1,2,3,4,5,6,)
-    while not end and backstep <= max_backsteps and t>0:
-
-        causes = get_actual_causes(animat, trial, t, cause_ixs, effect_ixs)
-        n_causal_links = len(causes)
-
-        if n_causal_links==0:
-            end=True
-
-        # use the union of the purview of all actual causes as the next ocurrence (effect_ixs) in the backtracking
-        effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
-        effect_ixs = list(set(effect_ixs))
-
-        if not hasattr(animat,'node_labels'):
-            if animat.n_nodes==8:
-                if (len(effect_ixs)==1 and (S1 in effect_ixs or S2 in effect_ixs)):
-                    end=True
-                elif (len(effect_ixs)==2 and (S1 in effect_ixs and S2 in effect_ixs)):
-                    end=True
-            else:
-                if (len(effect_ixs)==1 and (S1 in effect_ixs)):
-                    end=True
-        else:
-            if all([i in animat.sensor_labels for i in effect_ixs]):
-                end=True
-
-        if debug:
-            print(f't: {t}')
-            print_transition(animat.get_transition(trial,t))
-            print(causes)
-            next_effect = [label_dict[ix] for ix in effect_ixs]
-            print('Next effect_ixs: {}'.format(next_effect))
-
-        causal_chain.append(causes)
-        t -= 1
-        backstep += 1
-        if t==-1:
-            print('t=-1 reached.')
-
-    return causal_chain
+    return tuple(set(causes))
 
 
 def backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
@@ -285,6 +151,8 @@ def backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps=3,
 
 def backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
     '''
+    ### THIS IS ONLY HERE FOR BACKWARDS COMPATIBILITY, BUT IS KEPT HERE DUE TO
+    ### NAME BEING INTUITIVE
     Function for tracking the causes of an occurence back in time
         Inputs:
             animat: object where the animat brain and activity is defined
@@ -320,14 +188,16 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_ty
     if not hasattr(animat, 'enumerated_transitions'):
         causal_chain = backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type, debug)
 
-        # else, if all transitions have been calculated, and
+        # else, if causal links for all unique transitions have been calculated
     else:
         causal_chain = backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type, debug)
 
     return causal_chain
 
 def get_average_causal_chain(animat,max_backsteps=3):
-
+    '''
+    Calculation of average causal chain leading to motor occurrences
+    '''
     n_trials = animat.brain_activity.shape[0]
     n_steps = animat.brain_activity.shape[1]
     n_nodes = animat.brain_activity.shape[2]
@@ -338,9 +208,10 @@ def get_average_causal_chain(animat,max_backsteps=3):
 
     return np.mean(CC,0)
 
+
 def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purview_type='union'):
     '''
-    Calculates the causal chain leading to an occurence
+    Calculates the causal chain leading to an occurence for all transitions in a trial
         Inputs:
             animat: object where the animat brain and activity is defined
             trial: the trial number under investigation (int)
@@ -376,7 +247,7 @@ def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purvie
 
 def backtrack_all_activity(animat,max_backsteps=3,ocurrence_ixs=None,purview_type='union'):
     '''
-    Calculates the causal chain leading to an occurence
+    Calculates the causal chain leading to an all motor occurrences for an animat
         Inputs:
             animat: object where the animat brain and activity is defined
             trial: the trial number under investigation (int)
@@ -412,9 +283,9 @@ def backtrack_all_activity(animat,max_backsteps=3,ocurrence_ixs=None,purview_typ
     return causal_chain
 
 
-
-def calc_causal_history(animat, trial, only_motor=True,debug=False):
+def get_causal_history(animat, trial, occurence_ixs=None,MC=False):
     '''
+    ### SIMILAR TO OLD calc_causal_history(), BUT BETTER SUITED TO NEWER VERSION
     Calculates animat's direct cause history, defined as the direct causes of
     every transition (only motor or not) across a trial.
         Inputs:
@@ -424,385 +295,310 @@ def calc_causal_history(animat, trial, only_motor=True,debug=False):
         Outputs:
             direct_cause_history: list of lists of irreducible cause purviews
     '''
-    if not hasattr(animat,'node_labels'):
-        ### the following is specially designed for the analysis of Juel et al 2019 and should be generalized
-        if animat.n_nodes==8:
-            cause_ixs = [0,1,4,5,6,7]
-            effect_ixs = [2,3] if only_motor else [2,3,4,5,6,7]
-        else:
-            cause_ixs = [0,3,4,5,6]
-            effect_ixs = [1,2] if only_motor else [1,2,3,4,5,6]
-    else:
-        cause_ixs = animat.sensor_ixs + animat.hidden_ixs
-        effect_ixs = animat.motor_ixs if only_motor else animat.motor_ixs+animat.hidden_ixs
 
     direct_cause_history = []
     n_times = animat.brain_activity.shape[1]
+    start_step = trial*(n_times - 1) # index of first transition in given trial
 
-    for t in reversed(range(1,n_times)):
+    # if no particular occurence indices are given. Motors are assumed,
+    # unless 'complex' is True, in which case the occurrence is always the complex in current state
+    if not MC:
+        ocurrence_ixs = animat.motor_ixs if occurence_ixs==None else occurence_ixs
 
-        before_state, after_state = animat.get_transition(trial,t,False)
-        transition = pyphi.actual.Transition(animat.brain, before_state, after_state, cause_ixs, effect_ixs)
-        account = pyphi.actual.account(transition, direction=pyphi.Direction.CAUSE)
-        causes = account.irreducible_causes
+        for t in range(start_step,start_step + n_times):
+            direct_cause_history.append(get_union_of_causes(animat,t,ocurrence_ixs))
 
-        if debug:
-            print(f't: {t}')
-            print_transition((before_state,after_state))
-            print(causes)
+        return direct_cause_history
 
-        direct_cause_history.append(causes)
+    # calulcating history of causes of the state of the complex
+    else:
 
-    return direct_cause_history
+        for t in range(start_step,start_step + n_times):
+            state = animat.unique_transitions[t][1]
+            ocurrence_ixs = animat.MCs[state2num(state)]
+            direct_cause_history.append(get_union_of_causes(animat,t,ocurrence_ixs))
+
+        return direct_cause_history
 
 
-def get_alpha_cause_account_distribution(cause_account, n_nodes, animat):
+
+### IIT related FUNCTIONS
+
+def get_complex_indices(animat,state):
     '''
-    Function description
         Inputs:
-            inputs:
         Outputs:
-            outputs:
     '''
-    if animat is not None:
-        n_nodes = animat.n_nodes
 
-    alpha_dist = np.zeros(n_nodes)
-    for causal_link in cause_account:
-        # checking if the causal link has an extended purview
-        if hasattr(causal_link,'_extended_purview'):
-            ext_purv = causal_link._extended_purview
-            # getting the alpha and the number of purviews over which it should be divided
-            alpha = causal_link.alpha
-            n_purviews = len(ext_purv)
-            alpha = alpha/n_purviews
-
-            # looping over purviews and dividing alpha to nodes
-            for purview in ext_purv:
-                purview_length = len(purview)
-                alpha_dist[list(purview)] += alpha/purview_length
+    # Check if necessary animat properties exist
+    if type(state)==int:
+        if animat.MCs[state] == None:
+            return ()
         else:
-            purview = list(causal_link.purview)
-            alpha = causal_link.alpha
-            purview_length = len(purview)
-            alpha_dist[list(purview)] += alpha/purview_length
-
-    if animat is None:
-        alpha_dist = alpha_dist[[0,3,4,5,6]] if n_nodes==7 else alpha_dist[[0,1,4,5,6,7]]
+            return animat.MCs[state].subsystem.node_indices
     else:
-        alpha_dist = alpha_dist[animat.sensor_ixs+animat.hidden_ixs]
+        state_num = state2num(state)
+        if animat.MCs[state] == None:
+            return ()
+        else:
+            return animat.MCs[state_num].subsystem.node_indices
 
-    return alpha_dist
 
 
-def get_backtrack_array(causal_chain,n_nodes,animat=None):
+def get_complex_from_past_state_in_transtition(animat,transition):
     '''
-    Function description
         Inputs:
-            inputs:
         Outputs:
-            outputs:
     '''
 
-    n_backsteps = len(causal_chain)
-    if animat is None:
-        BT = np.zeros((n_backsteps,n_nodes-2))
+    # Check if necessary animat properties exist
+
+    # Find the past state in the transition and pick out the complex of that state
+    prev_state = transition[0]
+    prev_state_num = agency.state2num(prev_state)
+
+    MC_nodes = () if MC == None else MC.subsystem.node_indices
+
+    return MC_nodes
+
+
+def get_complex_from_current_state_in_transtition(animat,transition):
+    '''
+        Inputs:
+        Outputs:
+    '''
+    prev_state = transition[1]
+    prev_state_num = agency.state2num(prev_state)
+    MC = animat.MCs[prev_state_num]
+
+    MC_nodes = () if MC == None else MC.subsystem.node_indices
+
+    return MC_nodes
+
+
+def get_complex_purview_overlap(animat,transition,occurrence_ixs):
+    '''
+        Inputs:
+        Outputs:
+    '''
+
+    # Check if necessary animat properties exist
+
+    # find cause ixs
+    causes = get_union_of_causes(animat,transition,ocurrence_ixs)
+
+    # find MC from the past state
+    MC = get_complex_from_past_state(animat,transition)
+
+    # return % overlap
+    if causes == () or MC == ():
+        return 0
     else:
-        BT = np.zeros((n_backsteps,animat.n_nodes-animat.n_motors))
+        intersection = set(causes).intersection(MC)
+        union = set(causes).union(MC)
+        pct_overlap = len(intersection)/len(union)
+
+        return pct_overlap
 
 
-    for i, cause_account in enumerate(causal_chain):
-        BT[n_backsteps - (i+1),:] = get_alpha_cause_account_distribution(cause_account, n_nodes, animat)
-
-    return BT
-
-def get_causal_history_array(causal_chain,n_nodes,mode='alpha'): # OLD
+def stability_of_complex_over_transition(animat,transition):
     '''
-    Function description
         Inputs:
-            inputs:
         Outputs:
-            outputs:
-    '''
-    n_timesteps = len(causal_chain)
-    causal_history = np.zeros((n_timesteps,n_nodes))
-    for i in range(n_timesteps):
-        for causal_link in causal_chain[i]:
-            if mode=='alpha':
-                weight = causal_link.alpha
-            else:
-                weight = 1
-            causal_history[n_timesteps - (i+1),list(get_purview(causal_link))] += weight
-    return causal_history
-
-
-def get_occurrences(activityData,numSensors,numHidden,numMotors):
-    '''
-    Function for converting activity data from mabe to past and current occurences.
-        Inputs:
-            activityData: array containing all activity data to be converted ((agent x) trials x time x nodes)
-            numSensors: number of sensors in the agent brain
-            numHidden: number of hiden nodes in the agent brain
-            numMotors: number of motor units in the agent brain
-        Outputs:
-            x: past occurences (motor activity set to 0, since they have no effect on the future)
-            y: current occurences (sensor activity set to 0, since they are only affected by external world)
-    '''
-    size = activityData.shape
-    x = np.zeros(size)
-    y = np.zeros(size)
-
-
-    if len(size)==4:
-        # deleting one timestep from each trial
-        x = np.delete(x,(-1),axis=2)
-        y = np.delete(y,(-1),axis=2)
-
-        # filling matrices with values
-        x = copy.deepcopy(activityData[:,:,:-1,:])
-        y = copy.deepcopy(activityData[:,:,1:,:])
-
-        # setting sensors to 0 in y, and motors to zeros in x
-        x[:,:,:,numSensors:numSensors+numMotors] = np.zeros(x[:,:,:,numSensors:numSensors+numMotors].shape)
-        y[:,:,:,:numSensors] = np.zeros(y[:,:,:,:numSensors].shape)
-
-    elif len(size)==3:
-        # deleting one timestep from each trial
-        x = np.delete(x,(-1),axis=1)
-        y = np.delete(y,(-1),axis=1)
-
-        # filling matrices with values
-        x = copy.deepcopy(activityData[:,:-1,:])
-        y = copy.deepcopy(activityData[:,1:,:])
-
-        # setting sensors to 0 in y, and motors to zeros in x
-        x[:,:,numSensors:numSensors+numMotors] = np.zeros(x[:,:,numSensors:numSensors+numMotors].shape)
-        y[:,:,:numSensors] = np.zeros(y[:,:,:numSensors].shape)
-
-    return x, y
-
-def get_all_unique_transitions(activityData,numSensors=2,numHidden=4,numMotors=2):
-
-    x,y = get_occurrences(activityData,numSensors,numHidden,numMotors)
-
-    trials, times, nodes = x.shape
-
-    unique = []
-    transition_number = []
-
-    for tr in range(trials):
-        for t in range(times):
-            transition = (x[tr][t][:], y[tr][t][:])
-
-            trnum_curr = state2num(list(x[tr][t][:]) + (list(y[tr][t][:])))
-
-            if trnum_curr not in transition_number:
-                unique.append(transition)
-
-            transition_number.append(trnum_curr)
-    nums = np.array(transition_number).reshape(trials,times).astype(int).tolist()
-    return unique, nums
-
-
-
-def AnalyzeTransitions(network, activity, cause_indices=[0,1,4,5,6,7], effect_indices=[2,3],
-                       sensor_indices=[0,1], motor_indices=[2,3],
-                       purview = [],alpha = [],motorstate = [],transitions = [], account = []):
-    '''
-    Function description
-        Inputs:
-            inputs:
-        Outputs:
-            outputs:
     '''
 
-    states = len(activity)
-    n_nodes = len(activity[0])
-    x_indices = [i for i in range(n_nodes) if i not in motor_indices]
-    y_indices = [i for i in range(n_nodes) if i not in sensor_indices]
+    # Check if necessary animat properties exist
 
-    if len(transitions)>0:
-        tran = [np.append(transitions[i][0][x_indices],transitions[i][1][y_indices]) for i in list(range(0,len(transitions)))]
+    # Find complex in each state of the transition
+    prev_state_MC_nodes = get_complex_from_past_state_in_transtition(animat,transition)
+    curr_state_MC_nodes = get_complex_from_current_state_in_transtition(animat,transition)
+
+    # Find overlap between complexes in the two states
+    if prev_state_MC_nodes == () or curr_state_MC_nodes == ():
+        return 0
     else:
-        tran = []
+        intersection = set(prev_state_MC_nodes).intersection(curr_state_MC_nodes)
+        union = set(prev_state_MC_nodes).union(curr_state_MC_nodes)
+        pct_overlap = len(intersection)/len(union)
 
-    for s in list(range(states-1)):
-        # 2 sensors
-        x = activity[s,:].copy()
-        x[motor_indices] = [0]*len(motor_indices)
-        y = activity[s+1,:].copy()
-        y[sensor_indices] = [0]*len(sensor_indices)
+        return pct_overlap
 
-        occurence = np.append(x[x_indices],y[y_indices]).tolist()
-
-        # checking if this transition has never happened before for this agent
-        if not any([occurence == t.tolist() for t in tran]):
-            # generating a transition
-            transition = pyphi.actual.Transition(network, x, y, cause_indices,
-                effect_indices, cut=None, noise_background=False)
-            CL = transition.find_causal_link(pyphi.Direction.CAUSE, tuple(effect_indices), purviews=False, allow_neg=False)
-            AA = pyphi.actual.account(transition,pyphi.Direction.CAUSE)
-
-
-            alpha.append(CL.alpha)
-            purview.append(CL.purview)
-            motorstate.append(tuple(y[motor_indices]))
-            account.append(AA)
-
-
-            # avoiding recalculating the same occurence twice
-            tran.append(np.array(occurence))
-            transitions.append([np.array(x),np.array(y)])
-
-    return purview, alpha, motorstate, transitions, account
-
-def createPandasFromACAnalysis(LODS,agents,activity,TPMs,CMs,labs,
-                               cause_indices=[0,1,4,5,6,7], effect_indices=[2,3],
-                               sensor_indices=[0,1], motor_indices=[2,3]):
+def history_of_complexes(animat,trial=None,only_state_changes=True):
     '''
-    Function description
         Inputs:
-            inputs:
         Outputs:
-            outputs:
     '''
 
-    catch = []
-    purview = []
-    alpha = []
-    motor = []
-    transitions = []
-    account = []
+    # Check if necessary animat properties exist
 
-    for lod in LODS:
-        purview_LOD = []
-        alpha_LOD = []
-        motor_LOD = []
-        transitions_LOD = []
-        account_LOD = []
-        catch_LOD = []
+    # reshaping the enumerated states in case it not organized as trials
+    n_trials = animat.n_trials
+    n_steps = animat.n_timesteps
+    state_change = [True]
 
-        for agent in agents:
-            print('LOD: {} out of {}'.format(lod,np.max(LODS)))
-            print('agent: {} out of {}'.format(agent,np.max(agents)))
-            purview_agent = []
-            alpha_agent = []
-            motor_agent = []
-            transitions_agent = []
-            account_agent = []
-            catch_agent = []
+    # getting the full history of complexes
+    state_nums = [[animat.enumerated_states[t*n_steps+s] for s in range(n_steps)] for t in range(n_trials)]
+    complex_indices = [[get_complex_indices(animat,state_num) for state_num in trial] for trial in state_nums]
+    complex_history = [[[1 if i in MC else 0 for i in range(ani.n_nodes)] for MC in trial] for trial in complex_indices]
 
-            tr = []
-            TPM = np.squeeze(TPMs[lod,agent,:,:])
-            CM = np.squeeze(CMs[lod,agent,:,:])
-            TPMmd = pyphi.convert.to_multidimensional(TPM)
-            network_2sensor = pyphi.Network(TPMmd, cm=CM, node_labels=labs)
+    if only_state_changes:
+        # only including state transitions where state actually changed
+        true_history = []
+        for t in range(len(state_nums)):
+            true_history_trial = [complex_history[t][0]]
+            for s in range(1,len(state_nums[1])):
+                if not state_nums[t][s] == state_nums[t][s-1]:
+                    true_history_trial.append(complex_history[t][s])
+            true_history.append(true_history_trial)
 
-            for t in range(64):
-                purview_agent, alpha_agent, motor_agent, transitions_agent, account_agent = AnalyzeTransitions(
-                    network_2sensor, np.squeeze(activity[lod,agent,t,:,:]),
-                    purview = purview_agent, alpha = alpha_agent, account = account_agent,
-                    motorstate = motor_agent, transitions=transitions_agent,
-                    cause_indices=cause_indices, effect_indices=effect_indices,
-                    sensor_indices=sensor_indices, motor_indices=motor_indices)
-                catch_agent.append(1) if t<32 else catch.append(0)
-
-            purview_LOD.append(purview_agent)
-            alpha_LOD.append(alpha_agent)
-            motor_LOD.append(motor_agent)
-            transitions_LOD.append(transitions_agent)
-            account_LOD.append(account_agent)
-            catch_LOD.append(catch_agent)
+        return true_history if trial==None else true_history[trial]
+    else:
+        return complex_history if trial==None else complex_history[trial]
 
 
-        purview.append(purview_LOD)
-        alpha.append(alpha_LOD)
-        motor.append(motor_LOD)
-        transitions.append(transitions_LOD)
-        account.append(account_LOD)
-        catch.append(catch_LOD)
+def actual_cause_of_complex(animat,trial=None,step=None):
+    '''
+        Inputs:
+        Outputs:
+    '''
 
-    purview_aux = []
-    alpha_aux = []
-    motor_aux = []
-    transitions_aux = []
-    account_aux = []
-    lod_aux = []
-    agent_aux = []
-    catch_aux = []
-    s1 = []
-    s2 = []
-    h1 = []
-    h2 = []
-    h3 = []
-    h4 = []
-    hiddenInPurview = []
-    sensorsInPurview = []
+    # Check if necessary animat properties exist
 
-    idx = 0
+    #
 
-    for lod in list(range(0,len(LODS))):
-        for agent in list(range(0,len(agents))):
-            for i in list(range(len(purview[lod][agent]))):
+    return
 
-                motor_aux.append(np.sum([ii*(2**idx) for ii,idx in zip(motor[lod][agent][i],list(range(0,len(motor[lod][agent][i]))))]))
-                transitions_aux.append(transitions[lod][agent][i])
-                account_aux.append(account[lod][agent][i])
-                lod_aux.append(lod)
-                agent_aux.append(agent)
-                catch_aux.append(catch)
 
-                if purview[lod][agent][i] is not None:
-                    purview_aux.append([labs_2sensor[ii] for ii in purview[lod][agent][i]])
-                    s1.append(1 if 's1' in purview_aux[idx] else 0)
-                    s2.append(1 if 's2' in purview_aux[idx] else 0)
-                    h1.append(1 if 'h1' in purview_aux[idx] else 0)
-                    h2.append(1 if 'h2' in purview_aux[idx] else 0)
-                    h3.append(1 if 'h3' in purview_aux[idx] else 0)
-                    h4.append(1 if 'h4' in purview_aux[idx] else 0)
-                    alpha_aux.append(alpha[lod][agent][i])
-                    idx+=1
 
-                else:
-                    purview_aux.append('none')
-                    alpha_aux.append(alpha[lod][agent][i])
-                    s1.append(0)
-                    s2.append(0)
-                    h1.append(0)
-                    h2.append(0)
-                    h3.append(0)
-                    h4.append(0)
-                    idx+=1
-
-                hiddenInPurview.append(h1[idx-1]+h2[idx-1]+h3[idx-1]+h4[idx-1])
-                sensorsInPurview.append(s1[idx-1]+s2[idx-1])
-
-    dictforpd = {'purview':purview_aux,
-                    'motor':motor_aux,
-                    'alpha':alpha_aux,
-                    's1':s1,
-                    's2':s2,
-                    'h1':h1,
-                    'h2':h2,
-                    'h3':h3,
-                    'h4':h4,
-                    'hiddenInPurview':hiddenInPurview,
-                    'sensorsInPurview':sensorsInPurview,
-                    'catch': catch_aux,
-                    'transition': transitions_aux,
-                    'account': account_aux,
-                    'LOD': lod_aux,
-                    'agent': agent_aux,
-                    }
-
-    panda = pd.DataFrame(dictforpd)
-
-    return panda
 
 
 
 
 ### DATA ANALYSIS FUNCTIONS
+'''
+NEXT TWO SCRIPTS (TO CALCULATE LZ) ARE ADAPTED FROM SCHARTNER ET AL 2015.
+MAIN DIFFERENCE IS THAT THEY TAKE A BINARY LIST OF INPUTS RATHER THAN TIMESERIES
+AND THAT THERE ARE NOW THREE LETTERS IN THE ALPHABET (TO ALLOW FOR INHIBITION)
+'''
+
+def cpr(string):
+    '''
+    Lempel-Ziv-Welch compression of binary input string, e.g. string='0010101'. It outputs the size of the dictionary of binary words.
+    '''
+    d={}
+    w = ''
+    i=1
+    for c in string:
+        wc = w + c
+        if wc in d:
+            w = wc
+        else:
+            d[wc]=wc
+            w = c
+            i+=1
+    return len(d)
+
+def LZc(X):
+    '''
+    Compute LZc and use shuffled result as normalization
+    '''
+    # making string out of list
+    s=''
+    for j in X:
+        if j==1:
+            s+='1'
+        elif j==2:
+            s+='2'
+        else:
+            s+='0'
+
+    np.random.shuffle(X)
+    w=''
+    for j in X:
+        if j==1:
+            w+='1'
+        elif j==2:
+            w+='2'
+        else:
+            w+='0'
+    return cpr(s)/float(cpr(w))
+
+
+def calculate_PCI(animat,perturb_idx,repetitions,steps,st_devs=1.96,concat_PCI='time'):
+    '''
+        Inputs:
+        Outputs:
+    '''
+
+    # Check if necessary animat properties exist
+
+    # getting some parameters
+    n_nodes = animat.n_nodes
+    tpm = animat.brain.tpm
+    tpm2d = pyphi.convert.to_2dimensional(animat.brain.tpm)
+    n_states = tpm2d.shape[0]
+    perturbations = repetitions*n_states
+    expected_activity = np.mean(tpm2d,0)
+    perturb_state = np.ones(len(perturb_idx))
+
+    # getting random numbers for comparisons to decide state update
+    thresholds = np.random.random((perturbations, steps, n_nodes))
+    all_responses = []
+
+    # running stimulations
+    for s in range(perturbations):
+        # previous state
+        state = num2state(s%n_states,n_nodes)
+        # perturbing
+        state = [state[i] if i not in perturb_idx else 1 for i in range(n_nodes)]
+        # find the response to perturbations
+        response = []
+        for t in range(steps):
+            # get next state probabilities
+            next_state_p = tpm[tuple(state)]
+            # comparing with threshold to get next state
+            next_state = [1 if p>t else 0 for p,t in zip(next_state_p,thresholds[s,t,:])]
+            # adding next_state to response, and updating current state
+            response.append(next_state)
+            state = copy.deepcopy(next_state)
+
+        all_responses.append(response)
+
+    # getting stats for each node
+    res = np.array(all_responses)
+    mean_response = np.zeros((n_nodes,steps))
+    sem = np.zeros((n_nodes,steps))
+    for n in range(n_nodes):
+        mean_response[n,:], sem[n,:] = get_bootstrap_stats(res[:,:,n],n=500)
+
+    # binarizing response
+    # first generating matrices for high and low thresholds for significant
+    # (de)activation, based on expected activation and standard error of the means
+    t_high = np.zeros((n_nodes,steps))
+    t_low = np.zeros((n_nodes,steps))
+    binary_response = np.zeros((n_nodes,steps))
+    for n in range(n_nodes):
+        for s in range(steps):
+            t_high[n,s] = expected_activity[n] + sem[n,s]*st_devs
+            t_low[n,s] = expected_activity[n] - sem[n,s]*st_devs
+
+            if mean_response[n,s] > t_high[n,s]:
+                binary_response[n,s] = 1
+            elif mean_response[n,s] < t_low[n,s]:
+                binary_response[n,s] = 2
+
+    # Calculate PCI
+    concat_data = []
+    if concat_PCI == 'time':
+        for data in binary_response.astype(int):
+            concat_data.extend(data)
+    else:
+        for data in np.transpose(binary_response.astype(int)):
+            concat_data.extend(data)
+
+    PCI = LZc(concat_data)
+
+    return PCI, all_responses, mean_response, binary_response, expected_activity
 
 def Bootstrap_mean(data,n):
     '''
@@ -1271,38 +1067,6 @@ def load_dataset(path):
             data.append(inferred_CMs)
     return tuple(data)
 
-def state2num(state):
-    '''
-    Function description
-        Inputs:
-            inputs:
-        Outputs:
-            outputs:
-    '''
-    # send in a state as a list
-    num = 0
-    for i in range(len(state)):
-        num += (2**i)*state[-(i+1)]
-
-    # returns the number associated with the state
-    return int(num)
-
-def num2state(num,n_nodes):
-    '''
-    Function description
-        Inputs:
-            inputs:
-        Outputs:
-            outputs:
-    '''
-
-    number = '{0:0' + str(n_nodes) + 'b}'
-    state = number.format(num)
-    state = [int(i) for i in state]
-
-    # returns the state
-    return state
-
 
 def get_unique_states_binary(activity):
     '''
@@ -1326,6 +1090,347 @@ def get_unique_states_binary(activity):
     nums = np.array(statenum).reshape(activity.shape[0],activity.shape[1]).astype(int).tolist()
 
     return states, nums
+
+
+
+
+
+
+
+
+
+
+
+
+### GRAVEYARD
+### WHERE FUNCTIONS COME TO DIE
+### BUT ARE KEPT ALIVE FOR BACKWARDS COMPATIBILITY
+
+
+def get_alpha_cause_account_distribution(cause_account, n_nodes, animat=None):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+    if animat is not None:
+        n_nodes = animat.n_nodes
+
+    alpha_dist = np.zeros(n_nodes)
+    for causal_link in cause_account:
+        # checking if the causal link has an extended purview
+        if hasattr(causal_link,'_extended_purview'):
+            ext_purv = causal_link._extended_purview
+            # getting the alpha and the number of purviews over which it should be divided
+            alpha = causal_link.alpha
+            n_purviews = len(ext_purv)
+            alpha = alpha/n_purviews
+
+            # looping over purviews and dividing alpha to nodes
+            for purview in ext_purv:
+                purview_length = len(purview)
+                alpha_dist[list(purview)] += alpha/purview_length
+        else:
+            purview = list(causal_link.purview)
+            alpha = causal_link.alpha
+            purview_length = len(purview)
+            alpha_dist[list(purview)] += alpha/purview_length
+
+    if animat is None:
+        alpha_dist = alpha_dist[[0,3,4,5,6]] if n_nodes==7 else alpha_dist[[0,1,4,5,6,7]]
+    else:
+        alpha_dist = alpha_dist[animat.sensor_ixs+animat.hidden_ixs]
+
+    return alpha_dist
+
+
+def get_backtrack_array(causal_chain,n_nodes,animat=None):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+
+    n_backsteps = len(causal_chain)
+    if animat is None:
+        BT = np.zeros((n_backsteps,n_nodes-2))
+    else:
+        BT = np.zeros((n_backsteps,animat.n_nodes-animat.n_motors))
+
+
+    for i, cause_account in enumerate(causal_chain):
+        BT[n_backsteps - (i+1),:] = get_alpha_cause_account_distribution(cause_account, n_nodes, animat)
+
+    return BT
+
+
+def get_occurrences(activityData,numSensors,numHidden,numMotors):
+    '''
+    Function for converting activity data from mabe to past and current occurences.
+        Inputs:
+            activityData: array containing all activity data to be converted ((agent x) trials x time x nodes)
+            numSensors: number of sensors in the agent brain
+            numHidden: number of hiden nodes in the agent brain
+            numMotors: number of motor units in the agent brain
+        Outputs:
+            x: past occurences (motor activity set to 0, since they have no effect on the future)
+            y: current occurences (sensor activity set to 0, since they are only affected by external world)
+    '''
+    size = activityData.shape
+    x = np.zeros(size)
+    y = np.zeros(size)
+
+
+    if len(size)==4:
+        # deleting one timestep from each trial
+        x = np.delete(x,(-1),axis=2)
+        y = np.delete(y,(-1),axis=2)
+
+        # filling matrices with values
+        x = copy.deepcopy(activityData[:,:,:-1,:])
+        y = copy.deepcopy(activityData[:,:,1:,:])
+
+        # setting sensors to 0 in y, and motors to zeros in x
+        x[:,:,:,numSensors:numSensors+numMotors] = np.zeros(x[:,:,:,numSensors:numSensors+numMotors].shape)
+        y[:,:,:,:numSensors] = np.zeros(y[:,:,:,:numSensors].shape)
+
+    elif len(size)==3:
+        # deleting one timestep from each trial
+        x = np.delete(x,(-1),axis=1)
+        y = np.delete(y,(-1),axis=1)
+
+        # filling matrices with values
+        x = copy.deepcopy(activityData[:,:-1,:])
+        y = copy.deepcopy(activityData[:,1:,:])
+
+        # setting sensors to 0 in y, and motors to zeros in x
+        x[:,:,numSensors:numSensors+numMotors] = np.zeros(x[:,:,numSensors:numSensors+numMotors].shape)
+        y[:,:,:numSensors] = np.zeros(y[:,:,:numSensors].shape)
+
+    return x, y
+
+def get_all_unique_transitions(activityData,numSensors=2,numHidden=4,numMotors=2):
+
+    x,y = get_occurrences(activityData,numSensors,numHidden,numMotors)
+
+    trials, times, nodes = x.shape
+
+    unique = []
+    transition_number = []
+
+    for tr in range(trials):
+        for t in range(times):
+            transition = (x[tr][t][:], y[tr][t][:])
+
+            trnum_curr = state2num(list(x[tr][t][:]) + (list(y[tr][t][:])))
+
+            if trnum_curr not in transition_number:
+                unique.append(transition)
+
+            transition_number.append(trnum_curr)
+    nums = np.array(transition_number).reshape(trials,times).astype(int).tolist()
+    return unique, nums
+
+
+
+def AnalyzeTransitions(network, activity, cause_indices=[0,1,4,5,6,7], effect_indices=[2,3],
+                       sensor_indices=[0,1], motor_indices=[2,3],
+                       purview = [],alpha = [],motorstate = [],transitions = [], account = []):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+
+    states = len(activity)
+    n_nodes = len(activity[0])
+    x_indices = [i for i in range(n_nodes) if i not in motor_indices]
+    y_indices = [i for i in range(n_nodes) if i not in sensor_indices]
+
+    if len(transitions)>0:
+        tran = [np.append(transitions[i][0][x_indices],transitions[i][1][y_indices]) for i in list(range(0,len(transitions)))]
+    else:
+        tran = []
+
+    for s in list(range(states-1)):
+        # 2 sensors
+        x = activity[s,:].copy()
+        x[motor_indices] = [0]*len(motor_indices)
+        y = activity[s+1,:].copy()
+        y[sensor_indices] = [0]*len(sensor_indices)
+
+        occurence = np.append(x[x_indices],y[y_indices]).tolist()
+
+        # checking if this transition has never happened before for this agent
+        if not any([occurence == t.tolist() for t in tran]):
+            # generating a transition
+            transition = pyphi.actual.Transition(network, x, y, cause_indices,
+                effect_indices, cut=None, noise_background=False)
+            CL = transition.find_causal_link(pyphi.Direction.CAUSE, tuple(effect_indices), purviews=False, allow_neg=False)
+            AA = pyphi.actual.account(transition,pyphi.Direction.CAUSE)
+
+
+            alpha.append(CL.alpha)
+            purview.append(CL.purview)
+            motorstate.append(tuple(y[motor_indices]))
+            account.append(AA)
+
+
+            # avoiding recalculating the same occurence twice
+            tran.append(np.array(occurence))
+            transitions.append([np.array(x),np.array(y)])
+
+    return purview, alpha, motorstate, transitions, account
+
+def createPandasFromACAnalysis(LODS,agents,activity,TPMs,CMs,labs,
+                               cause_indices=[0,1,4,5,6,7], effect_indices=[2,3],
+                               sensor_indices=[0,1], motor_indices=[2,3]):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+
+    catch = []
+    purview = []
+    alpha = []
+    motor = []
+    transitions = []
+    account = []
+
+    for lod in LODS:
+        purview_LOD = []
+        alpha_LOD = []
+        motor_LOD = []
+        transitions_LOD = []
+        account_LOD = []
+        catch_LOD = []
+
+        for agent in agents:
+            print('LOD: {} out of {}'.format(lod,np.max(LODS)))
+            print('agent: {} out of {}'.format(agent,np.max(agents)))
+            purview_agent = []
+            alpha_agent = []
+            motor_agent = []
+            transitions_agent = []
+            account_agent = []
+            catch_agent = []
+
+            tr = []
+            TPM = np.squeeze(TPMs[lod,agent,:,:])
+            CM = np.squeeze(CMs[lod,agent,:,:])
+            TPMmd = pyphi.convert.to_multidimensional(TPM)
+            network_2sensor = pyphi.Network(TPMmd, cm=CM, node_labels=labs)
+
+            for t in range(64):
+                purview_agent, alpha_agent, motor_agent, transitions_agent, account_agent = AnalyzeTransitions(
+                    network_2sensor, np.squeeze(activity[lod,agent,t,:,:]),
+                    purview = purview_agent, alpha = alpha_agent, account = account_agent,
+                    motorstate = motor_agent, transitions=transitions_agent,
+                    cause_indices=cause_indices, effect_indices=effect_indices,
+                    sensor_indices=sensor_indices, motor_indices=motor_indices)
+                catch_agent.append(1) if t<32 else catch.append(0)
+
+            purview_LOD.append(purview_agent)
+            alpha_LOD.append(alpha_agent)
+            motor_LOD.append(motor_agent)
+            transitions_LOD.append(transitions_agent)
+            account_LOD.append(account_agent)
+            catch_LOD.append(catch_agent)
+
+
+        purview.append(purview_LOD)
+        alpha.append(alpha_LOD)
+        motor.append(motor_LOD)
+        transitions.append(transitions_LOD)
+        account.append(account_LOD)
+        catch.append(catch_LOD)
+
+    purview_aux = []
+    alpha_aux = []
+    motor_aux = []
+    transitions_aux = []
+    account_aux = []
+    lod_aux = []
+    agent_aux = []
+    catch_aux = []
+    s1 = []
+    s2 = []
+    h1 = []
+    h2 = []
+    h3 = []
+    h4 = []
+    hiddenInPurview = []
+    sensorsInPurview = []
+
+    idx = 0
+
+    for lod in list(range(0,len(LODS))):
+        for agent in list(range(0,len(agents))):
+            for i in list(range(len(purview[lod][agent]))):
+
+                motor_aux.append(np.sum([ii*(2**idx) for ii,idx in zip(motor[lod][agent][i],list(range(0,len(motor[lod][agent][i]))))]))
+                transitions_aux.append(transitions[lod][agent][i])
+                account_aux.append(account[lod][agent][i])
+                lod_aux.append(lod)
+                agent_aux.append(agent)
+                catch_aux.append(catch)
+
+                if purview[lod][agent][i] is not None:
+                    purview_aux.append([labs_2sensor[ii] for ii in purview[lod][agent][i]])
+                    s1.append(1 if 's1' in purview_aux[idx] else 0)
+                    s2.append(1 if 's2' in purview_aux[idx] else 0)
+                    h1.append(1 if 'h1' in purview_aux[idx] else 0)
+                    h2.append(1 if 'h2' in purview_aux[idx] else 0)
+                    h3.append(1 if 'h3' in purview_aux[idx] else 0)
+                    h4.append(1 if 'h4' in purview_aux[idx] else 0)
+                    alpha_aux.append(alpha[lod][agent][i])
+                    idx+=1
+
+                else:
+                    purview_aux.append('none')
+                    alpha_aux.append(alpha[lod][agent][i])
+                    s1.append(0)
+                    s2.append(0)
+                    h1.append(0)
+                    h2.append(0)
+                    h3.append(0)
+                    h4.append(0)
+                    idx+=1
+
+                hiddenInPurview.append(h1[idx-1]+h2[idx-1]+h3[idx-1]+h4[idx-1])
+                sensorsInPurview.append(s1[idx-1]+s2[idx-1])
+
+    dictforpd = {'purview':purview_aux,
+                    'motor':motor_aux,
+                    'alpha':alpha_aux,
+                    's1':s1,
+                    's2':s2,
+                    'h1':h1,
+                    'h2':h2,
+                    'h3':h3,
+                    'h4':h4,
+                    'hiddenInPurview':hiddenInPurview,
+                    'sensorsInPurview':sensorsInPurview,
+                    'catch': catch_aux,
+                    'transition': transitions_aux,
+                    'account': account_aux,
+                    'LOD': lod_aux,
+                    'agent': agent_aux,
+                    }
+
+    panda = pd.DataFrame(dictforpd)
+
+    return panda
+
 
 
 def pkl2df(path,experiment_list,n_trials=128,file_names=['version1_genome.pkl','version1_activity.pkl','version1_LOD_data.pkl'],
@@ -1442,3 +1547,151 @@ def pkl2df(path,experiment_list,n_trials=128,file_names=['version1_genome.pkl','
     df2 = df.set_index(['Experiment','Run','Agent'])
 
     return df2
+
+
+def get_causal_history_array(causal_chain,n_nodes,mode='alpha'): # OLD
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+    n_timesteps = len(causal_chain)
+    causal_history = np.zeros((n_timesteps,n_nodes))
+    for i in range(n_timesteps):
+        for causal_link in causal_chain[i]:
+            if mode=='alpha':
+                weight = causal_link.alpha
+            else:
+                weight = 1
+            causal_history[n_timesteps - (i+1),list(get_purview(causal_link))] += weight
+    return causal_history
+
+
+def get_purview(causal_link,purview_type='union'):
+    '''
+    This function gets the union of extended purviews of a causal link if the
+    causal link has that attribute. Otherwise it gets the union of the available purviews.
+        Inputs:
+            inputs:
+                causal_link: the list of irreducible causes of some account
+                union_of_purviews: indicator if the returned value should contain the union of purviews
+        Outputs:
+            outputs:
+                purview: the union of all purview elements across all (extended) cause purviews
+    '''
+    # checking if causal link has the attribute _extended_purview
+    if hasattr(causal_link,'_extended_purview'):
+        extended_purview = causal_link._extended_purview
+    else:
+        extended_purview = causal_link.purview
+
+    if purview_type == 'union':
+        if type(extended_purview) == list and len(extended_purview)>1:
+            # creating the union of     purviews
+            purview = set()
+            for p in extended_purview:
+                purview = purview.union(p)
+        elif type(extended_purview) == tuple:
+            purview = extended_purview
+
+    # returning the output
+    return tuple(purview)
+
+
+
+def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
+    '''
+    Brute force calculation of causal chain
+    '''
+    causal_chain = []
+
+    backstep = 1
+    end = False
+    effect_ixs = ocurrence_ixs
+    cause_ixs = (0,1,2,3,4,5,6,)
+    while not end and backstep <= max_backsteps and t>0:
+
+        causes = get_actual_causes(animat, trial, t, cause_ixs, effect_ixs)
+        n_causal_links = len(causes)
+
+        if n_causal_links==0:
+            end=True
+
+        # use the union of the purview of all actual causes as the next ocurrence (effect_ixs) in the backtracking
+        effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
+        effect_ixs = list(set(effect_ixs))
+
+        if not hasattr(animat,'node_labels'):
+            if animat.n_nodes==8:
+                if (len(effect_ixs)==1 and (S1 in effect_ixs or S2 in effect_ixs)):
+                    end=True
+                elif (len(effect_ixs)==2 and (S1 in effect_ixs and S2 in effect_ixs)):
+                    end=True
+            else:
+                if (len(effect_ixs)==1 and (S1 in effect_ixs)):
+                    end=True
+        else:
+            if all([i in animat.sensor_labels for i in effect_ixs]):
+                end=True
+
+        if debug:
+            print(f't: {t}')
+            print_transition(animat.get_transition(trial,t))
+            print(causes)
+            next_effect = [label_dict[ix] for ix in effect_ixs]
+            print('Next effect_ixs: {}'.format(next_effect))
+
+        causal_chain.append(causes)
+        t -= 1
+        backstep += 1
+        if t==-1:
+            print('t=-1 reached.')
+
+    return causal_chain
+
+
+
+
+def calc_causal_history(animat, trial, only_motor=True,debug=False):
+    '''
+    Calculates animat's direct cause history, defined as the direct causes of
+    every transition (only motor or not) across a trial.
+        Inputs:
+            animat: object where the animat brain and activity is defined
+            trial: the trial number under investigation (int)
+            only_motor: indicates whether the occurrence under investigation is only motors or the wholde network
+        Outputs:
+            direct_cause_history: list of lists of irreducible cause purviews
+    '''
+    if not hasattr(animat,'node_labels'):
+        ### the following is specially designed for the analysis of Juel et al 2019 and should be generalized
+        if animat.n_nodes==8:
+            cause_ixs = [0,1,4,5,6,7]
+            effect_ixs = [2,3] if only_motor else [2,3,4,5,6,7]
+        else:
+            cause_ixs = [0,3,4,5,6]
+            effect_ixs = [1,2] if only_motor else [1,2,3,4,5,6]
+    else:
+        cause_ixs = animat.sensor_ixs + animat.hidden_ixs
+        effect_ixs = animat.motor_ixs if only_motor else animat.motor_ixs+animat.hidden_ixs
+
+    direct_cause_history = []
+    n_times = animat.brain_activity.shape[1]
+
+    for t in reversed(range(1,n_times)):
+
+        before_state, after_state = animat.get_transition(trial,t,False)
+        transition = pyphi.actual.Transition(animat.brain, before_state, after_state, cause_ixs, effect_ixs)
+        account = pyphi.actual.account(transition, direction=pyphi.Direction.CAUSE)
+        causes = account.irreducible_causes
+
+        if debug:
+            print(f't: {t}')
+            print_transition((before_state,after_state))
+            print(causes)
+
+        direct_cause_history.append(causes)
+
+    return direct_cause_history
