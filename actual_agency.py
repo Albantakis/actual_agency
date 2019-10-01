@@ -24,7 +24,7 @@ purple, yellow = '#d279fc', '#f4db81'
 
 ### GENERAL FUNCTIONS USED BY ELSEWHERE
 
-def state2num(state):
+def state2num(state,convention='loli'):
     '''
     Function description
         Inputs:
@@ -34,8 +34,12 @@ def state2num(state):
     '''
     # send in a state as a list
     num = 0
-    for i in range(len(state)):
-        num += (2**i)*state[-(i+1)]
+    if convention == 'loli':
+        for i in range(len(state)):
+            num += (2**i)*state[i]
+    else:
+        for i in range(len(state)):
+            num += (2**i)*state[-(i+1)]
 
     # returns the number associated with the state
     return int(num)
@@ -89,21 +93,27 @@ def get_all_causal_links(animat):
     '''
     # calulate causal account for all unique transitions
     direct_causes = {}
+    n_states = len(animat.unique_transitions)
+    n = 0
     for t in animat.unique_transitions:
+        print('Finding causes for transition number {} out of {} unique transitions'.format(n,n_states))
+        n+=1
+
         transition_number = state2num(list(t[0]+t[1]))
-        cause_ixs = animat.sensor_ixs+animat.hidden_ixs
-        effect_ixs = animat.hidden_ixs+animat.motor_ixs
+        cause_ixs = animat.sensor_ixs+animat.hidden_ixs+animat.motor_ixs
+        effect_ixs = animat.sensor_ixs+animat.hidden_ixs+animat.motor_ixs
         Transition = pyphi.actual.Transition(animat.brain, t[0], t[1], cause_ixs, effect_ixs)
         CL = pyphi.actual.directed_account(Transition, pyphi.direction.Direction.CAUSE)
         direct_causes.update({transition_number : CL})
     return direct_causes
 
 
-def get_union_of_causes(animat,t,ocurrence_ixs):
+def get_union_of_causes(animat,transition,ocurrence_ixs):
     '''
 
     '''
-    full_cl = animat.causal_links[animat.enumerated_transitions[t]].causal_links
+
+    full_cl = animat.causal_links[state2num(transition[0]+transition[1])].causal_links
     causes = ()
     for cl in full_cl:
         if set(cl.mechanism).issubset(ocurrence_ixs):
@@ -305,20 +315,29 @@ def get_causal_history(animat, trial, occurence_ixs=None,MC=False):
     if not MC:
         ocurrence_ixs = animat.motor_ixs if occurence_ixs==None else occurence_ixs
 
-        for t in range(start_step,start_step + n_times):
-            direct_cause_history.append(get_union_of_causes(animat,t,ocurrence_ixs))
-
+        for t in range(start_step+1,start_step + n_times):
+            if not MC == None:
+                transition = animat.get_transition(trial, t, trim=False)
+                direct_cause_history.append(get_union_of_causes(animat,transition,ocurrence_ixs))
+            else:
+                direct_cause_history.append(())
         return direct_cause_history
 
     # calulcating history of causes of the state of the complex
     else:
 
-        for t in range(start_step,start_step + n_times):
-            state = animat.unique_transitions[t][1]
-            ocurrence_ixs = animat.MCs[state2num(state)]
-            direct_cause_history.append(get_union_of_causes(animat,t,ocurrence_ixs))
+        for t in range(start_step+1,start_step + n_times):
+            MC = animat.MCs[animat.enumerated_states[t]]
+            if not MC == None:
+                ocurrence_ixs = MC.subsystem.node_indices
+                transition = animat.get_transition(trial, t, trim=False)
+                direct_cause_history.append(get_union_of_causes(animat,transition,ocurrence_ixs))
+            else:
+                direct_cause_history.append(())
+
 
         return direct_cause_history
+
 
 
 
@@ -354,8 +373,9 @@ def get_complex_from_past_state_in_transtition(animat,transition):
     # Check if necessary animat properties exist
 
     # Find the past state in the transition and pick out the complex of that state
-    prev_state = transition[0]
-    prev_state_num = agency.state2num(prev_state)
+    past_state = transition[0]
+    past_state_num = state2num(past_state)
+    MC = animat.MCs[past_state_num]
 
     MC_nodes = () if MC == None else MC.subsystem.node_indices
 
@@ -367,9 +387,9 @@ def get_complex_from_current_state_in_transtition(animat,transition):
         Inputs:
         Outputs:
     '''
-    prev_state = transition[1]
-    prev_state_num = agency.state2num(prev_state)
-    MC = animat.MCs[prev_state_num]
+    current_state = transition[1]
+    current_state_num = state2num(current_state)
+    MC = animat.MCs[current_state_num]
 
     MC_nodes = () if MC == None else MC.subsystem.node_indices
 
@@ -383,22 +403,43 @@ def get_complex_purview_overlap(animat,transition,occurrence_ixs):
     '''
 
     # Check if necessary animat properties exist
+    if not occurrence_ixs == 'MC':
+        # find cause ixs
+        causes = get_union_of_causes(animat,transition,occurrence_ixs)
 
-    # find cause ixs
-    causes = get_union_of_causes(animat,transition,ocurrence_ixs)
+        # find MC from the past state
+        MC = get_complex_from_past_state_in_transtition(animat,transition)
 
-    # find MC from the past state
-    MC = get_complex_from_past_state(animat,transition)
+        # return % overlap
+        if causes == () or MC == ():
+            return 0
+        else:
+            intersection = set(causes).intersection(MC)
+            union = set(causes).union(MC)
+            pct_overlap = len(intersection)/len(union)
 
-    # return % overlap
-    if causes == () or MC == ():
-        return 0
+            return pct_overlap
     else:
-        intersection = set(causes).intersection(MC)
-        union = set(causes).union(MC)
-        pct_overlap = len(intersection)/len(union)
+        # find cause ixs
+        MC_curr = get_complex_from_current_state_in_transtition(animat,transition)
+        if not MC_curr == ():
+            causes = get_union_of_causes(animat,transition,MC_curr)
+        else:
+            causes = ()
 
-        return pct_overlap
+        # find MC from the past state
+        MC = get_complex_from_past_state_in_transtition(animat,transition)
+
+        # return % overlap
+        if causes == () or MC == ():
+            return 0
+        else:
+            intersection = set(causes).intersection(MC)
+            union = set(causes).union(MC)
+            pct_overlap = len(intersection)/len(union)
+
+            return pct_overlap
+
 
 
 def stability_of_complex_over_transition(animat,transition):
@@ -439,14 +480,14 @@ def history_of_complexes(animat,trial=None,only_state_changes=True):
     # getting the full history of complexes
     state_nums = [[animat.enumerated_states[t*n_steps+s] for s in range(n_steps)] for t in range(n_trials)]
     complex_indices = [[get_complex_indices(animat,state_num) for state_num in trial] for trial in state_nums]
-    complex_history = [[[1 if i in MC else 0 for i in range(ani.n_nodes)] for MC in trial] for trial in complex_indices]
+    complex_history = [[[1 if i in MC else 0 for i in range(animat.n_nodes)] for MC in trial] for trial in complex_indices]
 
     if only_state_changes:
         # only including state transitions where state actually changed
         true_history = []
         for t in range(len(state_nums)):
             true_history_trial = [complex_history[t][0]]
-            for s in range(1,len(state_nums[1])):
+            for s in range(1,len(state_nums[0])):
                 if not state_nums[t][s] == state_nums[t][s-1]:
                     true_history_trial.append(complex_history[t][s])
             true_history.append(true_history_trial)
@@ -524,7 +565,7 @@ def LZc(X):
     return cpr(s)/float(cpr(w))
 
 
-def calculate_PCI(animat,perturb_idx,repetitions,steps,st_devs=1.96,concat_PCI='time'):
+def calculate_PCI(animat,perturb_idx,repetitions,steps,st_devs=1.96,concat_PCI='time',nodes=None):
     '''
         Inputs:
         Outputs:
@@ -588,6 +629,9 @@ def calculate_PCI(animat,perturb_idx,repetitions,steps,st_devs=1.96,concat_PCI='
                 binary_response[n,s] = 2
 
     # Calculate PCI
+    if not nodes == None:
+        binary_response = binary_response[nodes,:]
+
     concat_data = []
     if concat_PCI == 'time':
         for data in binary_response.astype(int):

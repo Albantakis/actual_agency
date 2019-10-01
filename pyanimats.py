@@ -414,13 +414,37 @@ class Animat:
         '''
 
         MCs = {}
+        n_states = len(self.unique_states)
+        n = 0
         for s in self.unique_states:
+            print('Finding MC for state number {} out of {} unique states'.format(n,n_states))
+            n+=1
+
             MC = pyphi.compute.major_complex(self.brain,s)
             if MC.phi==0:
                 MCs.update({state2num(s) : None})
             else:
                 MCs.update({state2num(s) : MC})
         self.MCs = MCs
+
+
+    def save_phi_from_MCs(self):
+        '''
+
+            Inputs:
+
+            Outputs:
+        '''
+
+        phis = []
+        for s in self.unique_states:
+
+            if self.MCs[state2num(s)] == None:
+                phis.append(0)
+            else:
+                phis.append(self.MCs[state2num(s)].phi)
+        self.phis = phis
+
 
     def plot_brain(self, state=None, ax=None):
         '''
