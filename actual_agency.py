@@ -44,7 +44,7 @@ def state2num(state,convention='loli'):
     # returns the number associated with the state
     return int(num)
 
-def num2state(num,n_nodes):
+def num2state(num,n_nodes,convention='loli'):
     '''
     Function description
         Inputs:
@@ -58,7 +58,11 @@ def num2state(num,n_nodes):
     state = [int(i) for i in state]
 
     # returns the state
-    return state
+    if convention == 'loli':
+        state.reverse()
+        return state
+    else:
+        return state
 
 
 ### ACTTUAL CAUSATION ANALYSIS FUNCTIONS
