@@ -19,3 +19,21 @@ import pyphi
 import pyanimats as pa
 import pyTPM as pt
 import actual_agency as agency
+
+
+'''
+Data analysis functions.
+'''
+
+
+
+
+
+'''
+Data management functions.
+'''
+
+
+'''
+Plotting functions.
+'''
