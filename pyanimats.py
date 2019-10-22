@@ -354,6 +354,58 @@ class Animat:
         self.hidden_labels = [node_labels[i] for i in self.hidden_ixs]
 
 
+    def save_number_of_connected_nodes(animat):
+        animat.connected_nodes = np.sum(np.sum(animat.cm,0)*np.sum(animat.cm,1)>0)
+
+    def save_number_of_connected_sensors(animat):
+        ns = animat.n_sensors
+        animat.connected_sensors = np.sum(np.sum(animat.cm[:ns,:],1)>0)
+
+    def save_number_of_connected_motors(animat):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        animat.connected_motors = np.sum(np.sum(animat.cm[:,ns:ns+nm],0)>0)
+
+    def save_number_of_densely_connected_nodes(animat,allow_self_loops=False):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        hidden_cm = animat.cm[ns+nm:,ns+nm:]
+        if not allow_self_loops:
+            for i in range(animat.n_hidden):
+                hidden_cm[i,i] = 0
+        animat.densely_connected_nodes = np.sum((np.sum(hidden_cm,0)*np.sum(hidden_cm,1))>0)
+
+    def save_number_of_sensor_hidden_connections(animat):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        animat.sensor_hidden_connections = np.sum(animat.cm[:ns,ns+nm:]>0)
+
+    def save_number_of_sensor_motor_connections(animat):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        animat.sensor_motor_connections = np.sum(animat.cm[:ns,ns:ns+nm]>0)
+
+    def save_number_of_hidden_hidden_connections(animat):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        animat.hidden_hidden_connections = np.sum(animat.cm[ns+nm:,ns+nm:]>0)
+
+    def save_number_of_hidden_motor_connections(animat):
+        ns = animat.n_sensors
+        nm = animat.n_motors
+        animat.hidden_motor_connections = np.sum(animat.cm[ns+nm:,ns:ns+nm]>0)
+
+    def save_structural_properties(animat):
+        save_number_of_connected_nodes(animat)
+        save_number_of_connected_sensors(animat)
+        save_number_of_connected_motors(animat)
+        save_number_of_densely_connected_nodes(animat)
+        save_number_of_sensor_hidden_connections(animat)
+        save_number_of_sensor_motor_connections(animat)
+        save_number_of_hidden_hidden_connections(animat)
+        save_number_of_hidden_motor_connections(animat)
+
+
     def getMotorActivity(self, trial):
         '''
         Function for getting the motor activity from a system's activity
