@@ -1111,15 +1111,12 @@ def plot_multiple(x,data=[],title=None,label=None,colormap=None,linestyle='-',fi
         Outputs:
             outputs:
     '''
-
-
     n_datasets = len(data)
     # creating colormaps
     if colormap==None:
-        color = mpl.cm.get_cmap('viridis',n_datasets)
+        color = mpl.cm.get_cmap('rainbow',n_datasets)
     else:
         color = mpl.cm.get_cmap(colormap,n_datasets)
-
 
     # doing bootstrapping and PLOTTING
     if fig==None:
@@ -1128,18 +1125,19 @@ def plot_multiple(x,data=[],title=None,label=None,colormap=None,linestyle='-',fi
 
     for n in range(n_datasets):
         d = data[n]
-        fit = Bootstrap_mean(d,500)
+        fit = agency.Bootstrap_mean(d,500)
         m_fit = np.mean(fit,0)
         s_fit = np.std(fit,0)
+
         for raw in d:
             plt.plot(x,raw,color=color(n),alpha=0.1)
-        plt.fill_between(x, m_fit-s_fit, m_fit+s_fit, color=color(n), alpha=0.2)
-        if not label ==None:
-            plt.plot(x, m_fit, color=color(n), linestyle=linestyle)
+
+        plt.fill_between(x, m_fit-s_fit*1.96, m_fit+s_fit*1.96, color=color(n), alpha=0.2)
+        if not label==None:
+            plt.plot(x, m_fit, label=label[n],color=color(n), linestyle=linestyle)
             plt.legend()
         else:
-            plt.plot(x, m_fit, color=color[n], linestyle=linestyle)
-
+            plt.plot(x, m_fit, color=color(n), linestyle=linestyle)
         if not title==None:
             plt.title(title)
 
