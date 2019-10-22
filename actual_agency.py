@@ -13,6 +13,7 @@ import copy
 import subprocess as sp
 from pathlib import Path
 import ipywidgets as widgets
+import math
 
 import pyphi
 import pyanimats as pa
@@ -65,6 +66,108 @@ def num2state(num,n_nodes,convention='loli'):
         return state
 
 
+def get_genome(genomes, run, agent):
+    genome = genomes[run]['GENOME_root::_sites'][agent]
+    genome = np.squeeze(np.array(np.matrix(genome)))
+    return genome
+
+
+def getBrainActivity(data, n_agents=1, n_trials=64, n_nodes=8, n_sensors=2,n_hidden=4,n_motors=2, world_height = 200):
+    '''
+    Function for generating a activity matrices for the animats given outputs from mabe
+        Inputs:
+            data: a pandas object containing the mabe output from activity recording
+            n_agents: number of agents recorded
+            n_trials: number of trials for each agent
+            n_nodes: total number of nodes in the agent brain (sensors+motrs+hidden)
+            n_sensors: number of sensors in the agent brain
+            n_hidden: number of hidden nodes between the sensors and motors
+            n_motors: number of motors in the agent brain
+        Outputs:
+            brain_activity: a matrix with the timeseries of activity for each trial of every agent. Dimensions(agents)
+    '''
+    print('Creating activity matrix from MABE output...')
+    n_transitions = world_height
+    brain_activity = np.zeros((n_agents,n_trials,1+n_transitions,n_nodes))
+
+    for a in list(range(n_agents)):
+        for i in list(range(n_trials)):
+            for j in list(range(n_transitions+1)):
+                ix = a*n_trials*n_transitions + i*n_transitions + j
+                if j==0:
+                    sensor = np.fromstring(str(data['input_LIST'][ix]), dtype=int, sep=',')[:n_sensors]
+                    hidden = np.zeros(n_hidden)
+                    motor = np.zeros(n_motors)
+                elif j==n_transitions:
+                    sensor = np.ones(n_sensors)*-1
+                    hidden = np.fromstring(data['hidden_LIST'][ix-1], dtype=int, sep=',')
+                    motor = np.fromstring(data['output_LIST'][ix-1], dtype=int, sep=',')
+                else:
+                    sensor = np.fromstring(str(data['input_LIST'][ix]), dtype=int, sep=',')[:n_sensors]
+                    hidden = np.fromstring(data['hidden_LIST'][ix-1], dtype=int, sep=',')
+                    motor = np.fromstring(data['output_LIST'][ix-1], dtype=int, sep=',')
+                nodes = np.r_[sensor, motor, hidden]
+                brain_activity[a,i,j,:] = nodes
+    return brain_activity
+
+
+def parse_task_and_actions(animat):
+
+# for the actual agency task
+
+    activity = animat.brain_activity
+
+    # check dimensionality of activity
+    if len(activity.shape) == 3:
+        trials,times,nodes = activity.shape
+    elif len(activity.shape) == 2:
+        trials = 1
+        times,nodes = activity.shape
+        activity = numpy.reshape(activity, activity.shape + (1,))
+    else:
+        print('check the dimensions of your data array')
+        return None
+
+    prev_task = (-1,-1)
+    action = False
+    thinking = (0,0)
+
+    task_list = []
+    action_list = []
+
+    for trial in range(trials):
+        task_list_trial = []
+        action_list_trial = []
+        for t in range(times-1):
+            new_task = tuple(activity[trial,t,animat.sensor_ixs])
+            motor_state = tuple(activity[trial,t,animat.motor_ixs])
+
+            if not new_task == (-1,-1):
+                if not new_task == prev_task:
+                    task_list_trial.append(new_task+(0,t,))
+                    if not motor_state == thinking:
+                        action_list_trial.append(motor_state+(t,))
+                        action = True
+
+                elif new_task == prev_task and not motor_state == thinking:
+                    task_list_trial.append(new_task+(1,t,))
+                    action_list_trial.append(motor_state+(t,))
+                    action = True
+
+                elif new_task == prev_task and motor_state == thinking:
+                    action = False
+
+                prev_task = new_task
+
+        task_list.append(task_list_trial)
+        action_list.append(action_list_trial)
+
+    animat.task_list = task_list
+    animat.action_list = action_list
+
+    return task_list, action_list
+
+
 ### ACTTUAL CAUSATION ANALYSIS FUNCTIONS
 
 def get_actual_causes(animat, trial, t, cause_ixs, effect_ixs):
@@ -100,7 +203,7 @@ def get_all_causal_links(animat):
     n_states = len(animat.unique_transitions)
     n = 0
     for t in animat.unique_transitions:
-        print('Finding causes for transition number {} out of {} unique transitions'.format(n,n_states))
+        #print('Finding causes for transition number {} out of {} unique transitions'.format(n,n_states))
         n+=1
 
         transition_number = state2num(list(t[0]+t[1]))
@@ -112,7 +215,7 @@ def get_all_causal_links(animat):
     return direct_causes
 
 
-def get_union_of_causes(animat,transition,ocurrence_ixs):
+def get_union_of_causes(animat,transition,occurrence_ixs):
     '''
 
     '''
@@ -120,7 +223,7 @@ def get_union_of_causes(animat,transition,ocurrence_ixs):
     full_cl = animat.causal_links[state2num(transition[0]+transition[1])].causal_links
     causes = ()
     for cl in full_cl:
-        if set(cl.mechanism).issubset(ocurrence_ixs):
+        if set(cl.mechanism).issubset(occurrence_ixs):
             # adding cause purview to union of causes
             purview = cl.purview
             causes += purview
@@ -128,7 +231,7 @@ def get_union_of_causes(animat,transition,ocurrence_ixs):
     return tuple(set(causes))
 
 
-def backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
+def backtrack_cause_enumerated(animat, trial, t, occurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
     '''
     Calculation of causal chain using enumerated transitions
     '''
@@ -136,8 +239,8 @@ def backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps=3,
 
     backstep = 1
     end = False
-    effect_ixs = ocurrence_ixs
-    while not end and backstep <= max_backsteps and t>=0:
+    effect_ixs = occurrence_ixs
+    while not end and backstep <= max_backsteps and t>=0 and not math.isnan(animat.enumerated_transitions[t]):
         # check if the effect_ixs have causes for current transition
         full_cl = animat.causal_links[animat.enumerated_transitions[t]].causal_links
         causes = ()
@@ -160,19 +263,19 @@ def backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps=3,
             t -= 1
             effect_ixs = causes
 
-    return causal_chain
+    return causal_chain.tolist()
 
 
-def backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
+def backtrack_cause(animat, trial, t, occurrence_ixs, max_backsteps=3, purview_type='union', debug=False):
     '''
     ### THIS IS ONLY HERE FOR BACKWARDS COMPATIBILITY, BUT IS KEPT HERE DUE TO
     ### NAME BEING INTUITIVE
-    Function for tracking the causes of an occurence back in time
+    Function for tracking the causes of an occurrence back in time
         Inputs:
             animat: object where the animat brain and activity is defined
             trial: the trial number under investigation (int)
             t: the time of the second state in the transition (int)
-            occurence_ixs: the indices of the elements that constitute the occurrence under investigation
+            occurrence_ixs: the indices of the elements that constitute the occurrence under investigation
             max_backsteps: the maximum number of steps we track the causes back
             purview_type: name of the type of purview we use to track the causes
         Outputs:
@@ -181,8 +284,8 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_ty
 
     if not hasattr(animat,'node_labels'):
         ### the following is specially designed for the analysis of Juel et al 2019 and should be generalized
-        if ocurrence_ixs==None:
-            ocurrence_ixs = [2,3] if animat.n_nodes==8 else [1,2] # motor ixs
+        if occurrence_ixs==None:
+            occurrence_ixs = [2,3] if animat.n_nodes==8 else [1,2] # motor ixs
         if animat.n_nodes==8:
             cause_ixs = [0,1,4,5,6,7]
             S1, S2, M1, M2, A, B, C, D = range(8)
@@ -193,18 +296,18 @@ def backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps=3, purview_ty
             label_dict = {key:x for key,x in zip(range(7),['S1', 'M1', 'M2', 'A', 'B', 'C', 'D'])}
     else:
         cause_ixs = list(animat.sensor_ixs) + list(animat.hidden_ixs)
-        if ocurrence_ixs==None:
-            ocurrence_ixs = animat.motor_ixs
+        if occurrence_ixs==None:
+            occurrence_ixs = animat.motor_ixs
 
         if debug:
             print('MAKE A PROPER label_dict FOR RUNNING DEBUG')
 
     if not hasattr(animat, 'enumerated_transitions'):
-        causal_chain = backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type, debug)
+        causal_chain = backtrack_cause_brute_force(animat, trial, t, occurrence_ixs, max_backsteps, purview_type, debug)
 
         # else, if causal links for all unique transitions have been calculated
     else:
-        causal_chain = backtrack_cause_enumerated(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type, debug)
+        causal_chain = backtrack_cause_enumerated(animat, trial, t, occurrence_ixs, max_backsteps, purview_type, debug)
 
     return causal_chain
 
@@ -223,14 +326,14 @@ def get_average_causal_chain(animat,max_backsteps=3):
     return np.mean(CC,0)
 
 
-def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purview_type='union'):
+def backtrack_cause_trial(animat,trial,max_backsteps=3,occurrence_ixs=None,purview_type='union'):
     '''
-    Calculates the causal chain leading to an occurence for all transitions in a trial
+    Calculates the causal chain leading to an occurrence for all transitions in a trial
         Inputs:
             animat: object where the animat brain and activity is defined
             trial: the trial number under investigation (int)
             max_backsteps: the maximum number of steps we track the causes back (int). also the first timestep tracked back
-            occurence_ixs: the indices of the elements that constitute the occurrence under investigation
+            occurrence_ixs: the indices of the elements that constitute the occurrence under investigation
             purview_type: name of the type of purview we use to track the causes
         Outputs:
             causal_chain: a list of backtracking patterns for each timestep in a trial
@@ -238,35 +341,42 @@ def backtrack_cause_trial(animat,trial,max_backsteps=3,ocurrence_ixs=None,purvie
 
     causal_chain = []
     n_times = animat.brain_activity.shape[1]
-
-    if ocurrence_ixs is None:
-        occurence_ixs = animat.motor_ixs
-
-    print('Calculating causal chain for trial {}.'.format(trial))
-    aux = ran.rand()
-    if aux<0.02:
-        print('Have patience young padawan!')
-    elif aux<0.04:
-        print('have faith! It will finish eventually...')
-    elif aux<0.05:
-        print("this is a chicken, for your entertainment      (  ')>  ")
-    elif aux<0.06:
-        print('This might be a good time for a coffee')
+    '''
+        print('Calculating causal chain for trial {}.'.format(trial))
+        aux = ran.rand()
+        if aux<0.02:
+            print('Have patience young padawan!')
+        elif aux<0.04:
+            print('have faith! It will finish eventually...')
+        elif aux<0.05:
+            print("this is a chicken, for your entertainment      (  ')>  ")
+        elif aux<0.06:
+            print('This might be a good time for a coffee')
+    '''
+    if occurrence_ixs is None:
+        occurrence_ixs = animat.motor_ixs
 
     for t in range(max_backsteps,n_times):
-        CC = backtrack_cause(animat, trial, t, ocurrence_ixs, max_backsteps, purview_type)
-        causal_chain.append(list(np.mean(CC,0)))
+        state = animat.brain_activity[trial][t]
+
+        if not -1 in state:
+            if occurrence_ixs == 'MC':
+                ix = get_complex_indices(animat,tuple(state))
+            else:
+                ix = occurrence_ixs
+            CC = backtrack_cause(animat, trial, t, ix, max_backsteps, purview_type)
+            causal_chain.append(CC)
 
     return causal_chain
 
-def backtrack_all_activity(animat,max_backsteps=3,ocurrence_ixs=None,purview_type='union'):
+def backtrack_all_activity(animat,max_backsteps=3,occurrence_ixs=None,purview_type='union'):
     '''
     Calculates the causal chain leading to an all motor occurrences for an animat
         Inputs:
             animat: object where the animat brain and activity is defined
             trial: the trial number under investigation (int)
             max_backsteps: the maximum number of steps we track the causes back (int). also the first timestep tracked back
-            occurence_ixs: the indices of the elements that constitute the occurrence under investigation
+            occurrence_ixs: the indices of the elements that constitute the occurrence under investigation
             purview_type: name of the type of purview we use to track the causes
         Outputs:
             causal_chain: a list of backtracking patterns for each timestep in a trial
@@ -276,8 +386,8 @@ def backtrack_all_activity(animat,max_backsteps=3,ocurrence_ixs=None,purview_typ
     n_times = animat.brain_activity.shape[1]
     n_trials = animat.brain_activity.shape[0]
 
-    if ocurrence_ixs is None:
-        occurence_ixs = animat.motor_ixs
+    if occurrence_ixs is None:
+        occurrence_ixs = animat.motor_ixs
     print('Calculating causal chain for a full set of brain activity')
     aux = ran.rand()
     if aux<0.02:
@@ -291,13 +401,30 @@ def backtrack_all_activity(animat,max_backsteps=3,ocurrence_ixs=None,purview_typ
     for tr in range(n_trials):
         cc_tr = []
         for t in range(max_backsteps,n_times):
-            CC = backtrack_cause(animat, tr, t, ocurrence_ixs, max_backsteps, purview_type)
+            CC = backtrack_cause(animat, tr, t, occurrence_ixs, max_backsteps, purview_type)
             cc_tr.append(list(np.mean(CC,0)))
         causal_chain.append(cc_tr)
     return causal_chain
 
 
-def get_causal_history(animat, trial, occurence_ixs=None,MC=False):
+def get_alpha_distribution(animat,t,effect_ixs):
+
+    alpha_distribution = np.zeros((animat.n_nodes))
+    if not math.isnan(animat.enumerated_transitions[t]):
+        full_cl = animat.causal_links[animat.enumerated_transitions[t]].causal_links
+        causes = ()
+        for cl in full_cl:
+            if set(cl.mechanism).issubset(effect_ixs):
+                # adding cause purview to union of causes
+                purview = cl.purview
+                for p in purview:
+                    alpha_distribution[p] += cl.alpha/len(purview)
+
+    return alpha_distribution.tolist()
+
+
+
+def get_causal_history(animat, trial, occurrence_ixs=None,MC=False):
     '''
     ### SIMILAR TO OLD calc_causal_history(), BUT BETTER SUITED TO NEWER VERSION
     Calculates animat's direct cause history, defined as the direct causes of
@@ -311,37 +438,51 @@ def get_causal_history(animat, trial, occurence_ixs=None,MC=False):
     '''
 
     direct_cause_history = []
-    n_times = animat.brain_activity.shape[1]
-    start_step = trial*(n_times - 1) # index of first transition in given trial
+    direct_alpha_history = []
+    dims = animat.brain_activity.shape
+    n_times = dims[1]
+    if len(dims)==2:
+        start_step = trial*(n_times - 1) +1
+        trial = 0
+        print('data_dimension might be wrong and lead to errors. Get more than one trial!')
+    elif len(dims)==3:
+        start_step = 1 # index of first transition in given trial
 
-    # if no particular occurence indices are given. Motors are assumed,
+    # if no particular occurrence indices are given. Motors are assumed,
     # unless 'complex' is True, in which case the occurrence is always the complex in current state
     if not MC:
-        ocurrence_ixs = animat.motor_ixs if occurence_ixs==None else occurence_ixs
+        occurrence_ixs = animat.motor_ixs if occurrence_ixs==None else occurrence_ixs
 
-        for t in range(start_step+1,start_step + n_times):
-            if not MC == None:
-                transition = animat.get_transition(trial, t, trim=False)
-                direct_cause_history.append(get_union_of_causes(animat,transition,ocurrence_ixs))
-            else:
-                direct_cause_history.append(())
-        return direct_cause_history
+        for t in range(start_step,start_step + n_times-1):
+
+            transition = animat.get_transition(trial, t, trim=False)
+            if not -1 in transition[0] and not -1 in transition[1]:
+                if not MC == None:
+                    cause_ixs = get_union_of_causes(animat,transition,occurrence_ixs)
+                    direct_cause_history.append([int(1) if i in cause_ixs else int(0) for i in range(animat.n_nodes)])
+                    direct_alpha_history.append(get_alpha_distribution(animat,t-1,occurrence_ixs))
+                else:
+                    direct_cause_history.append(np.zeros((animat.n_nodes)).astype(int).tolist())
+                    direct_alpha_history.append(np.zeros((animat.n_nodes)).tolist())
+        return direct_cause_history,direct_alpha_history
 
     # calulcating history of causes of the state of the complex
     else:
-
-        for t in range(start_step+1,start_step + n_times):
-            MC = animat.MCs[animat.enumerated_states[t]]
-            if not MC == None:
-                ocurrence_ixs = MC.subsystem.node_indices
-                transition = animat.get_transition(trial, t, trim=False)
-                direct_cause_history.append(get_union_of_causes(animat,transition,ocurrence_ixs))
+        for t in range(start_step,start_step + n_times-1):
+            if not math.isnan(animat.enumerated_states[trial*n_times + t]):
+                MCs = animat.MCs[animat.enumerated_states[trial*n_times + t]]
+                if not MCs == None:
+                    occurrence_ixs = MCs.subsystem.node_indices
+                    transition = animat.get_transition(trial, t, trim=False)
+                    cause_ixs = get_union_of_causes(animat,transition,occurrence_ixs)
+                    direct_cause_history.append([int(1) if i in cause_ixs else int(0) for i in range(animat.n_nodes)])
+                    direct_alpha_history.append(get_alpha_distribution(animat,t-1,occurrence_ixs))
+                else:
+                    direct_cause_history.append(np.zeros((animat.n_nodes)).astype(int).tolist())
+                    direct_alpha_history.append(np.zeros((animat.n_nodes)).tolist())
             else:
-                direct_cause_history.append(())
-
-
-        return direct_cause_history
-
+                return direct_cause_history,direct_alpha_history
+        return direct_cause_history,direct_alpha_history
 
 
 
@@ -361,11 +502,28 @@ def get_complex_indices(animat,state):
             return animat.MCs[state].subsystem.node_indices
     else:
         state_num = state2num(state)
-        if animat.MCs[state] == None:
+        if animat.MCs[state_num] == None:
             return ()
         else:
             return animat.MCs[state_num].subsystem.node_indices
 
+
+def save_phi_from_MCs(animat):
+    '''
+
+        Inputs:
+
+        Outputs:
+    '''
+
+    phis = []
+    for s in animat.unique_states:
+
+        if animat.MCs[state2num(s)] == None:
+            phis.append(0)
+        else:
+            phis.append(animat.MCs[state2num(s)].phi)
+    animat.phis = phis
 
 
 def get_complex_from_past_state_in_transtition(animat,transition):
@@ -483,7 +641,7 @@ def history_of_complexes(animat,trial=None,only_state_changes=True):
 
     # getting the full history of complexes
     state_nums = [[animat.enumerated_states[t*n_steps+s] for s in range(n_steps)] for t in range(n_trials)]
-    complex_indices = [[get_complex_indices(animat,state_num) for state_num in trial] for trial in state_nums]
+    complex_indices = [[get_complex_indices(animat,state_num) for state_num in trial if not math.isnan(state_num)] for trial in state_nums]
     complex_history = [[[1 if i in MC else 0 for i in range(animat.n_nodes)] for MC in trial] for trial in complex_indices]
 
     if only_state_changes:
@@ -945,6 +1103,48 @@ def plot_2LODdata_and_Bootstrap(x,LODdata1,LODdata2,label=['data1','data2'],colo
 
     return fig
 
+def plot_multiple(x,data=[],title=None,label=None,colormap=None,linestyle='-',figsize=[20,10],fig=None,subplot=111):
+    '''
+    Function description
+        Inputs:
+            inputs:
+        Outputs:
+            outputs:
+    '''
+
+
+    n_datasets = len(data)
+    # creating colormaps
+    if colormap==None:
+        color = mpl.cm.get_cmap('viridis',n_datasets)
+    else:
+        color = mpl.cm.get_cmap(colormap,n_datasets)
+
+
+    # doing bootstrapping and PLOTTING
+    if fig==None:
+        fig = plt.figure(figsize=figsize)
+    plt.subplot(subplot)
+
+    for n in range(n_datasets):
+        d = data[n]
+        fit = Bootstrap_mean(d,500)
+        m_fit = np.mean(fit,0)
+        s_fit = np.std(fit,0)
+        for raw in d:
+            plt.plot(x,raw,color=color(n),alpha=0.1)
+        plt.fill_between(x, m_fit-s_fit, m_fit+s_fit, color=color(n), alpha=0.2)
+        if not label ==None:
+            plt.plot(x, m_fit, color=color(n), linestyle=linestyle)
+            plt.legend()
+        else:
+            plt.plot(x, m_fit, color=color[n], linestyle=linestyle)
+
+        if not title==None:
+            plt.title(title)
+
+    return fig
+
 
 def hist2d_2LODdata(LODdata1x,LODdata1y,LODdata2x,LODdata2y, nbins=20):
     '''
@@ -1218,15 +1418,15 @@ def get_backtrack_array(causal_chain,n_nodes,animat=None):
 
 def get_occurrences(activityData,numSensors,numHidden,numMotors):
     '''
-    Function for converting activity data from mabe to past and current occurences.
+    Function for converting activity data from mabe to past and current occurrences.
         Inputs:
             activityData: array containing all activity data to be converted ((agent x) trials x time x nodes)
             numSensors: number of sensors in the agent brain
             numHidden: number of hiden nodes in the agent brain
             numMotors: number of motor units in the agent brain
         Outputs:
-            x: past occurences (motor activity set to 0, since they have no effect on the future)
-            y: current occurences (sensor activity set to 0, since they are only affected by external world)
+            x: past occurrences (motor activity set to 0, since they have no effect on the future)
+            y: current occurrences (sensor activity set to 0, since they are only affected by external world)
     '''
     size = activityData.shape
     x = np.zeros(size)
@@ -1313,10 +1513,10 @@ def AnalyzeTransitions(network, activity, cause_indices=[0,1,4,5,6,7], effect_in
         y = activity[s+1,:].copy()
         y[sensor_indices] = [0]*len(sensor_indices)
 
-        occurence = np.append(x[x_indices],y[y_indices]).tolist()
+        occurrence = np.append(x[x_indices],y[y_indices]).tolist()
 
         # checking if this transition has never happened before for this agent
-        if not any([occurence == t.tolist() for t in tran]):
+        if not any([occurrence == t.tolist() for t in tran]):
             # generating a transition
             transition = pyphi.actual.Transition(network, x, y, cause_indices,
                 effect_indices, cut=None, noise_background=False)
@@ -1330,8 +1530,8 @@ def AnalyzeTransitions(network, activity, cause_indices=[0,1,4,5,6,7], effect_in
             account.append(AA)
 
 
-            # avoiding recalculating the same occurence twice
-            tran.append(np.array(occurence))
+            # avoiding recalculating the same occurrence twice
+            tran.append(np.array(occurrence))
             transitions.append([np.array(x),np.array(y)])
 
     return purview, alpha, motorstate, transitions, account
@@ -1649,7 +1849,7 @@ def get_purview(causal_link,purview_type='union'):
 
 
 
-def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
+def backtrack_cause_brute_force(animat, trial, t, occurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
     '''
     Brute force calculation of causal chain
     '''
@@ -1657,7 +1857,7 @@ def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backst
 
     backstep = 1
     end = False
-    effect_ixs = ocurrence_ixs
+    effect_ixs = occurrence_ixs
     cause_ixs = (0,1,2,3,4,5,6,)
     while not end and backstep <= max_backsteps and t>0:
 
@@ -1667,7 +1867,7 @@ def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backst
         if n_causal_links==0:
             end=True
 
-        # use the union of the purview of all actual causes as the next ocurrence (effect_ixs) in the backtracking
+        # use the union of the purview of all actual causes as the next occurrence (effect_ixs) in the backtracking
         effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
         effect_ixs = list(set(effect_ixs))
 
@@ -1699,7 +1899,33 @@ def backtrack_cause_brute_force(animat, trial, t, ocurrence_ixs=None, max_backst
 
     return causal_chain
 
+def get_hidden_ratio(animat,data):
 
+    if type(data)==list:
+        data = np.array(data)
+
+    hidden_ratio = []
+    print(data.shape)
+    if len(data.shape) == 3:
+        for t in range(len(data)):
+            sensor_contribution = np.sum(data[t,:,animat.sensor_ixs])
+            hidden_contribution = np.sum(data[t,:,animat.hidden_ixs])
+            if not sensor_contribution + hidden_contribution == 0:
+                hidden_ratio.append(hidden_contribution / (hidden_contribution + sensor_contribution))
+            else:
+                hidden_ratio.append(float('nan'))
+    elif len(data.shape) == 2:
+        for t in range(len(data)):
+            sensor_contribution = np.sum(data[t,animat.sensor_ixs])
+            hidden_contribution = np.sum(data[t,animat.hidden_ixs])
+            if not sensor_contribution + hidden_contribution == 0:
+                hidden_ratio.append(hidden_contribution / (hidden_contribution + sensor_contribution))
+            else:
+                hidden_ratio.append(float('nan'))
+    else:
+        print('something is wrong for calculating hidden ratio')
+
+    return hidden_ratio
 
 
 def calc_causal_history(animat, trial, only_motor=True,debug=False):

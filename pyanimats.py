@@ -6,6 +6,7 @@ import os
 import copy
 import pyphi
 import networkx as nx
+import math
 
 from actual_agency import *
 
@@ -127,8 +128,9 @@ class Animat:
         for trial in trials:
             for t in range(0,n_times):
                 state = self.get_state(trial, t)
-                if state not in unique_states:
-                    unique_states.append(state)
+                if not -1 in state:
+                    if state not in unique_states:
+                        unique_states.append(state)
 
         return unique_states
 
@@ -155,8 +157,11 @@ class Animat:
                 # getting current transition and checking if it is new
                 state = self.get_state(trial, t)
                 n = state2num(list(state))
-                # adding transition idendtifier to list
-                enumerated_states.append(n)
+                if not -1 in state:
+                    # adding transition idendtifier to list
+                    enumerated_states.append(n)
+                else:
+                    enumerated_states.append(float('nan'))
 
         self.enumerated_states = enumerated_states
 
@@ -225,9 +230,10 @@ class Animat:
             for t in range(1,n_times):
                 # getting current transition and checking if it is new
                 transition = self.get_transition(trial, t, trim)
-                if transition not in unique_transitions:
-                    unique_transitions.append(transition)
-                    unique_idxs.append((trial, t))
+                if not -1 in transition[0] and not -1 in transition[1]:
+                    if transition not in unique_transitions:
+                        unique_transitions.append(transition)
+                        unique_idxs.append((trial, t))
 
         # picking unique transitions without trimming is trim = False
         if not trim:
@@ -258,9 +264,11 @@ class Animat:
             for t in range(1,n_times):
                 # getting current transition and checking if it is new
                 transition = self.get_transition(trial, t, trim=False)
-                # adding transition idendtifier to list
-                enumerated_transitions.append(state2num(list(transition[0])+list(transition[1])))
-
+                if not -1 in transition[0] and not -1 in transition[1]:
+                    # adding transition idendtifier to list
+                    enumerated_transitions.append(state2num(list(transition[0])+list(transition[1])))
+                else:
+                    enumerated_transitions.append(float('nan'))
         self.enumerated_transitions = enumerated_transitions
 
 
@@ -274,10 +282,10 @@ class Animat:
         '''
         # call getBrainActivity function if brain activity is pandas
         if type(brain_activity)==pd.core.frame.DataFrame:
-            self.brain_activity = self._getBrainActivity(brain_activity)
+            self.brain_activity = self._getBrainActivity(brain_activity).astype(int)
         else: ## if brain activity is array form
             assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
-            self.brain_activity = np.array(brain_activity)
+            self.brain_activity = np.array(brain_activity).astype(int)
             self.n_trials = brain_activity.shape[0]
             self.n_timesteps = brain_activity.shape[1]
 
@@ -328,6 +336,7 @@ class Animat:
         self.brain = network
         self.TPM = TPM
         self.cm = cm
+        self.connected_nodes = sum(np.sum(cm,0)*np.sum(cm,1)>0)
 
         # defining a graph object based on the connectivity using networkx
         G = nx.from_numpy_matrix(cm, create_using=nx.DiGraph())
@@ -417,7 +426,7 @@ class Animat:
         n_states = len(self.unique_states)
         n = 0
         for s in self.unique_states:
-            print('Finding MC for state number {} out of {} unique states'.format(n,n_states))
+            #print('Finding MC for state number {} out of {} unique states'.format(n,n_states))
             n+=1
 
             MC = pyphi.compute.major_complex(self.brain,s)
@@ -462,7 +471,7 @@ class Animat:
 def create_animat(run, agent, tpm, cm, brain_activity):
 
     animat = Animat({})
-    animat.saveBrian(tpm, cm)
+    animat.saveBrain(tpm, cm)
     animat.saveBrainActivity(activity)
     return animat
 
