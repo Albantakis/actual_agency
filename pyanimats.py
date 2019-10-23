@@ -8,7 +8,9 @@ import pyphi
 import networkx as nx
 import math
 
-from actual_agency import *
+from analysis import *
+from graveyard import *
+from plotting import *
 
 class Animat:
     '''
