@@ -291,7 +291,7 @@ def plot_multiple(x,data=[],title=None,label=None,colormap=None,linestyle='-',fi
 
     for n in range(n_datasets):
         d = data[n]
-        fit = agency.Bootstrap_mean(d,500)
+        fit = Bootstrap_mean(d,500)
         m_fit = np.mean(fit,0)
         s_fit = np.std(fit,0)
 

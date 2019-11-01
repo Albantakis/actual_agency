@@ -21,6 +21,8 @@ import pyphi
 import pyanimats as pa
 import pyTPM as pt
 
+
+
 def get_alpha_cause_account_distribution(cause_account, n_nodes, animat=None):
     '''
     Function description
@@ -481,118 +483,6 @@ def get_causal_history_array(causal_chain,n_nodes,mode='alpha'): # OLD
                 weight = 1
             causal_history[n_timesteps - (i+1),list(get_purview(causal_link))] += weight
     return causal_history
-
-
-def get_purview(causal_link,purview_type='union'):
-    '''
-    This function gets the union of extended purviews of a causal link if the
-    causal link has that attribute. Otherwise it gets the union of the available purviews.
-        Inputs:
-            inputs:
-                causal_link: the list of irreducible causes of some account
-                union_of_purviews: indicator if the returned value should contain the union of purviews
-        Outputs:
-            outputs:
-                purview: the union of all purview elements across all (extended) cause purviews
-    '''
-    # checking if causal link has the attribute _extended_purview
-    if hasattr(causal_link,'_extended_purview'):
-        extended_purview = causal_link._extended_purview
-    else:
-        extended_purview = causal_link.purview
-
-    if purview_type == 'union':
-        if type(extended_purview) == list and len(extended_purview)>1:
-            # creating the union of     purviews
-            purview = set()
-            for p in extended_purview:
-                purview = purview.union(p)
-        elif type(extended_purview) == tuple:
-            purview = extended_purview
-
-    # returning the output
-    return tuple(purview)
-
-
-
-def backtrack_cause_brute_force(animat, trial, t, occurrence_ixs=None, max_backsteps=3, purview_type='union', debug=False):
-    '''
-    Brute force calculation of causal chain
-    '''
-    causal_chain = []
-
-    backstep = 1
-    end = False
-    effect_ixs = occurrence_ixs
-    cause_ixs = (0,1,2,3,4,5,6,)
-    while not end and backstep <= max_backsteps and t>0:
-
-        causes = get_actual_causes(animat, trial, t, cause_ixs, effect_ixs)
-        n_causal_links = len(causes)
-
-        if n_causal_links==0:
-            end=True
-
-        # use the union of the purview of all actual causes as the next occurrence (effect_ixs) in the backtracking
-        effect_ixs = [p for cause in causes for p in get_purview(cause,purview_type)]
-        effect_ixs = list(set(effect_ixs))
-
-        if not hasattr(animat,'node_labels'):
-            if animat.n_nodes==8:
-                if (len(effect_ixs)==1 and (S1 in effect_ixs or S2 in effect_ixs)):
-                    end=True
-                elif (len(effect_ixs)==2 and (S1 in effect_ixs and S2 in effect_ixs)):
-                    end=True
-            else:
-                if (len(effect_ixs)==1 and (S1 in effect_ixs)):
-                    end=True
-        else:
-            if all([i in animat.sensor_labels for i in effect_ixs]):
-                end=True
-
-        if debug:
-            print(f't: {t}')
-            print_transition(animat.get_transition(trial,t))
-            print(causes)
-            next_effect = [label_dict[ix] for ix in effect_ixs]
-            print('Next effect_ixs: {}'.format(next_effect))
-
-        causal_chain.append(causes)
-        t -= 1
-        backstep += 1
-        if t==-1:
-            print('t=-1 reached.')
-
-    return causal_chain
-
-def get_hidden_ratio(animat,data):
-
-    if type(data)==list:
-        data = np.array(data)
-
-    hidden_ratio = []
-    print(data.shape)
-    if len(data.shape) == 3:
-        for t in range(len(data)):
-            sensor_contribution = np.sum(data[t,:,animat.sensor_ixs])
-            hidden_contribution = np.sum(data[t,:,animat.hidden_ixs])
-            if not sensor_contribution + hidden_contribution == 0:
-                hidden_ratio.append(hidden_contribution / (hidden_contribution + sensor_contribution))
-            else:
-                hidden_ratio.append(float('nan'))
-    elif len(data.shape) == 2:
-        for t in range(len(data)):
-            sensor_contribution = np.sum(data[t,animat.sensor_ixs])
-            hidden_contribution = np.sum(data[t,animat.hidden_ixs])
-            if not sensor_contribution + hidden_contribution == 0:
-                hidden_ratio.append(hidden_contribution / (hidden_contribution + sensor_contribution))
-            else:
-                hidden_ratio.append(float('nan'))
-    else:
-        print('something is wrong for calculating hidden ratio')
-
-    return hidden_ratio
-
 
 def calc_causal_history(animat, trial, only_motor=True,debug=False):
     '''

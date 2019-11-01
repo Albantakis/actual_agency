@@ -93,6 +93,135 @@ class Animat:
         return brain_activity
 
 
+    def create_animat(run, agent, tpm, cm, brain_activity):
+
+        animat = Animat({})
+        animat.saveBrain(tpm, cm)
+        animat.saveBrainActivity(brain_activity)
+        return animat
+
+
+    def save_brain_activity(self,brain_activity):
+        '''
+        More general function for saving brain activity to animat object
+            Inputs:
+                trial: brain activity, either as MABE output or 3D array (trials x times x nodes)
+            Outputs:
+                no output, just an update of the Animat object
+        '''
+        # call getBrainActivity function if brain activity is pandas
+        if type(brain_activity)==pd.core.frame.DataFrame:
+            self.brain_activity = self._getBrainActivity(brain_activity).astype(int)
+        else: ## if brain activity is array form
+            assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
+            self.brain_activity = np.array(brain_activity).astype(int)
+            self.n_trials = brain_activity.shape[0]
+            self.n_timesteps = brain_activity.shape[1]
+
+
+    def save_unique_states(self):
+        unique_states = self.get_unique_states()
+        self.unique_states = unique_states
+        self.enumerate_states()
+        self.num_unique_states = len(unique_states)
+
+    def save_unique_transitions(self):
+        self.unique_transitions, self.unique_idxs = self.get_unique_transitions(trim=False)
+        self.enumerate_transitions()
+        self.num_unique_transitions = len(self.unique_transitions)
+
+    def save_unique_causal_links(self):
+        self.causal_links = get_all_causal_links(self)
+
+
+    def save_brain(self, TPM, cm, node_labels=[]):
+        '''
+        Function for giving the animat a brain (pyphi network) and a graph object
+            Inputs:
+                TPM: a transition probability matrix readable for pyPhi
+                cm: a connectivity matrix readable for pyPhi
+                node_labels: list of labels for nodes (if empty, standard labels are used)
+            Outputs:
+                no output, just an update of the animat object
+        '''
+        if not len(node_labels)==self.n_nodes:
+            node_labels = []
+            # standard labels for up to 10 nodes of each kind
+            sensor_labels = ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10']
+            motor_labels = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10']
+            hidden_labels = ['A','B','C','D','E','F','G','H','I','J']
+
+            # defining labels for each node type
+            s = [sensor_labels[i] for i in list(range(self.n_sensors))]
+            m = [motor_labels[i] for i in list(range(self.n_motors))]
+            h = [hidden_labels[i] for i in list(range(self.n_hidden))]
+
+            # combining the labels
+            node_labels.extend(s)
+            node_labels.extend(m)
+            node_labels.extend(h)
+
+        # defining the network using pyphi
+        network = pyphi.Network(TPM, cm, node_labels=node_labels)
+        self.brain = network
+        self.TPM = TPM
+        self.cm = cm
+        self.connected_nodes = sum(np.sum(cm,0)*np.sum(cm,1)>0)
+
+        # defining a graph object based on the connectivity using networkx
+        G = nx.from_numpy_matrix(cm, create_using=nx.DiGraph())
+        mapping = {key:x for key,x in zip(range(self.n_nodes),node_labels)}
+        G = nx.relabel_nodes(G, mapping)
+        self.brain_graph = G
+
+        # saving the labels and indices of sensors, motors, and hidden to animats
+        self.node_labels = node_labels
+        self.sensor_ixs = list(range(self.n_sensors))
+        self.sensor_labels = [node_labels[i] for i in self.sensor_ixs]
+        self.motor_ixs = list(range(self.n_sensors,self.n_sensors+self.n_motors))
+        self.motor_labels = [node_labels[i] for i in self.motor_ixs]
+        self.hidden_ixs = list(range(self.n_sensors+self.n_motors,self.n_sensors+self.n_motors+self.n_hidden))
+        self.hidden_labels = [node_labels[i] for i in self.hidden_ixs]
+
+    ''' OLD FUNCTIONS KEPT FOR BACKWARDS COMPATIBILITY'''
+
+    def saveBrainActivity(self, brain_activity):
+        self.save_brain_activity(brain_activity)
+
+    def saveUniqueStates(self):
+        self.save_unique_states()
+
+    def saveUniqueTransitions(self):
+        self.save_unique_transitions()
+
+    def saveBrain(self, TPM, cm, node_labels=[]):
+        self.save_brain(TPM, cm, node_labels)
+
+    def getMotorActivity(self, trial):
+        '''
+        Function for getting the motor activity from a system's activity
+        ### THIS FUNCTION ONLY WORKS FOR SYSTEMS WITH TWO SENSORS ###
+            Inputs:
+                trial: int, the trial number under investigation
+            Outputs:
+                motor_activity: list of movements made by the animat in a trial
+        '''
+        motor_states = self.brain_activity[trial,:,self.n_sensors:self.n_sensors+2]
+        motor_activity = []
+        for state in motor_states:
+            state = list(state)
+            if state==[0,0] or state==[1,1]:
+                motor_activity.append(0)
+            elif state==[1,0]:
+                motor_activity.append(1)
+            else: # state==[0,1]
+                motor_activity.append(-1)
+        return motor_activity
+
+
+
+    ### SETTING UP ANIMAT FOR ANALYSIS
+
     def get_state(self, trial, t):
         '''
         Function for picking out a specific state of the system.
@@ -274,239 +403,109 @@ class Animat:
         self.enumerated_transitions = enumerated_transitions
 
 
-    def saveBrainActivity(self, brain_activity):
-        '''
-        More general function for saving brain activity to animat object
-            Inputs:
-                trial: brain activity, either as MABE output or 3D array (trials x times x nodes)
-            Outputs:
-                no output, just an update of the Animat object
-        '''
-        # call getBrainActivity function if brain activity is pandas
-        if type(brain_activity)==pd.core.frame.DataFrame:
-            self.brain_activity = self._getBrainActivity(brain_activity).astype(int)
-        else: ## if brain activity is array form
-            assert brain_activity.shape[2]==self.n_nodes, "Brain history does not match number of nodes = {}".format(self.n_nodes)
-            self.brain_activity = np.array(brain_activity).astype(int)
-            self.n_trials = brain_activity.shape[0]
-            self.n_timesteps = brain_activity.shape[1]
 
-    def saveUniqueStates(self):
-        unique_states = self.get_unique_states()
-        self.unique_states = unique_states
-        self.enumerate_states()
-        self.num_unique_states = len(unique_states)
+    ### Structural ANALYSIS FUNCTIONS
 
-    def saveUniqueTransitions(self):
-        self.unique_transitions, self.unique_idxs = self.get_unique_transitions(trim=False)
-        self.enumerate_transitions()
-        self.num_unique_transitions = len(self.unique_transitions)
-
-    def save_unique_causal_links(self):
-        self.causal_links = get_all_causal_links(self)
+    def save_number_of_connected_nodes(self):
+        self.connected_nodes = number_of_connected_nodes(self.cm)
 
 
-    def saveBrain(self, TPM, cm, node_labels=[]):
-        '''
-        Function for giving the animat a brain (pyphi network) and a graph object
-            Inputs:
-                TPM: a transition probability matrix readable for pyPhi
-                cm: a connectivity matrix readable for pyPhi
-                node_labels: list of labels for nodes (if empty, standard labels are used)
-            Outputs:
-                no output, just an update of the animat object
-        '''
-        if not len(node_labels)==self.n_nodes:
-            node_labels = []
-            # standard labels for up to 10 nodes of each kind
-            sensor_labels = ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10']
-            motor_labels = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10']
-            hidden_labels = ['A','B','C','D','E','F','G','H','I','J']
-
-            # defining labels for each node type
-            s = [sensor_labels[i] for i in list(range(self.n_sensors))]
-            m = [motor_labels[i] for i in list(range(self.n_motors))]
-            h = [hidden_labels[i] for i in list(range(self.n_hidden))]
-
-            # combining the labels
-            node_labels.extend(s)
-            node_labels.extend(m)
-            node_labels.extend(h)
-
-        # defining the network using pyphi
-        network = pyphi.Network(TPM, cm, node_labels=node_labels)
-        self.brain = network
-        self.TPM = TPM
-        self.cm = cm
-        self.connected_nodes = sum(np.sum(cm,0)*np.sum(cm,1)>0)
-
-        # defining a graph object based on the connectivity using networkx
-        G = nx.from_numpy_matrix(cm, create_using=nx.DiGraph())
-        mapping = {key:x for key,x in zip(range(self.n_nodes),node_labels)}
-        G = nx.relabel_nodes(G, mapping)
-        self.brain_graph = G
-
-        # saving the labels and indices of sensors, motors, and hidden to animats
-        self.node_labels = node_labels
-        self.sensor_ixs = list(range(self.n_sensors))
-        self.sensor_labels = [node_labels[i] for i in self.sensor_ixs]
-        self.motor_ixs = list(range(self.n_sensors,self.n_sensors+self.n_motors))
-        self.motor_labels = [node_labels[i] for i in self.motor_ixs]
-        self.hidden_ixs = list(range(self.n_sensors+self.n_motors,self.n_sensors+self.n_motors+self.n_hidden))
-        self.hidden_labels = [node_labels[i] for i in self.hidden_ixs]
+    def save_number_of_connected_sensors(self):
+        ns = self.n_sensors
+        self.connected_sensors = number_of_connected_sensors(self.cm,ns)
 
 
-    def save_number_of_connected_nodes(animat):
-        animat.connected_nodes = np.sum(np.sum(animat.cm,0)*np.sum(animat.cm,1)>0)
-
-    def save_number_of_connected_sensors(animat):
-        ns = animat.n_sensors
-        animat.connected_sensors = np.sum(np.sum(animat.cm[:ns,:],1)>0)
-
-    def save_number_of_connected_motors(animat):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        animat.connected_motors = np.sum(np.sum(animat.cm[:,ns:ns+nm],0)>0)
-
-    def save_number_of_densely_connected_nodes(animat,allow_self_loops=False):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        hidden_cm = animat.cm[ns+nm:,ns+nm:]
-        if not allow_self_loops:
-            for i in range(animat.n_hidden):
-                hidden_cm[i,i] = 0
-        animat.densely_connected_nodes = np.sum((np.sum(hidden_cm,0)*np.sum(hidden_cm,1))>0)
-
-    def save_number_of_sensor_hidden_connections(animat):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        animat.sensor_hidden_connections = np.sum(animat.cm[:ns,ns+nm:]>0)
-
-    def save_number_of_sensor_motor_connections(animat):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        animat.sensor_motor_connections = np.sum(animat.cm[:ns,ns:ns+nm]>0)
-
-    def save_number_of_hidden_hidden_connections(animat):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        animat.hidden_hidden_connections = np.sum(animat.cm[ns+nm:,ns+nm:]>0)
-
-    def save_number_of_hidden_motor_connections(animat):
-        ns = animat.n_sensors
-        nm = animat.n_motors
-        animat.hidden_motor_connections = np.sum(animat.cm[ns+nm:,ns:ns+nm]>0)
-
-    def save_structural_properties(animat):
-        save_number_of_connected_nodes(animat)
-        save_number_of_connected_sensors(animat)
-        save_number_of_connected_motors(animat)
-        save_number_of_densely_connected_nodes(animat)
-        save_number_of_sensor_hidden_connections(animat)
-        save_number_of_sensor_motor_connections(animat)
-        save_number_of_hidden_hidden_connections(animat)
-        save_number_of_hidden_motor_connections(animat)
+    def save_number_of_connected_motors(self):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.connected_motors = number_of_connected_motors(self.cm,ns,nm)
 
 
-    def getMotorActivity(self, trial):
-        '''
-        Function for getting the motor activity from a system's activity
-        ### THIS FUNCTION ONLY WORKS FOR SYSTEMS WITH TWO SENSORS ###
-            Inputs:
-                trial: int, the trial number under investigation
-            Outputs:
-                motor_activity: list of movements made by the animat in a trial
-        '''
-        motor_states = self.brain_activity[trial,:,self.n_sensors:self.n_sensors+2]
-        motor_activity = []
-        for state in motor_states:
-            state = list(state)
-            if state==[0,0] or state==[1,1]:
-                motor_activity.append(0)
-            elif state==[1,0]:
-                motor_activity.append(1)
-            else: # state==[0,1]
-                motor_activity.append(-1)
-        return motor_activity
+    def save_number_of_densely_connected_nodes(self,allow_self_loops=False):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.densely_connected_nodes = number_of_densely_connected_nodes(self.cm,allow_self_loops)
 
-    def get_phi_from_subsystem(self, state, node_indices = (4,5,6,7)):
 
-        #calculate phi on specified subsystem,
-        #4,5,6,7 all hidden nodes of the animat
-        subsystem = pyphi.Subsystem(self.brain, state, node_indices)
-        phi = pyphi.compute.phi(subsystem)
+    def save_number_of_sensor_hidden_connections(self):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.sensor_hidden_connections = number_of_sensor_hidden_connections(self.cm,ns,nm)
 
-        return phi
 
-    def get_phi_from_complexes(self, state):
-        complexes = pyphi.compute.network.complexes(self.brain, state)
-        if len(complexes) == 0:
-            phi = 0.0
-        elif len(complexes) > 1:
-            phi = []
-            for complex_num in range(len(complexes)):
-                    phi.append(complexes[complex_num].phi)
+    def save_number_of_sensor_motor_connections(self):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.sensor_motor_connections = number_of_sensor_motor_connections(self.cm,ns,nm)
+
+
+    def save_number_of_hidden_hidden_connections(self):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.hidden_hidden_connections = number_of_hidden_hidden_connections(self.cm,ns,nm)
+
+
+    def save_number_of_hidden_motor_connections(self):
+        ns = self.n_sensors
+        nm = self.n_motors
+        self.hidden_motor_connections = number_of_hidden_motor_connections(self.cm,ns,nm)
+
+    def save_structural_properties(self):
+        self.save_number_of_connected_nodes()
+        self.save_number_of_connected_sensors()
+        self.save_number_of_connected_motors()
+        self.save_number_of_densely_connected_nodes()
+        self.save_number_of_sensor_hidden_connections()
+        self.save_number_of_sensor_motor_connections()
+        self.save_number_of_hidden_hidden_connections()
+        self.save_number_of_hidden_motor_connections()
+
+
+    ### DYNAMICAL ANALYSIS FUNCTIONS
+
+    def save_coalition_entropy(self):
+        if len(self.brain_activity.shape)==3:
+            self.coalition_entropy = [coalition_entropy(data) for data in self.brain_activity]
+        elif len(self.brain_activity.shape)==2:
+            self.coalition_entropy = coalition_entropy(self.brain_activity)
         else:
-            phi_table[run].append(complexes[0].phi)
-        return phi
+            print('Check dimensionaloity and type of brain_activity data.')
+
+
+    def save_LZ_complexity(self,dim='space',threshold=0,shuffles=10):
+        self.LZ_complexity = LZ_complexity(self.brain_activity,dim,threshold,shuffles)
+
+
+    def save_effective_information(self):
+        self.effective_information(self.brain.tpm,self.n_nodes)
+
+
+    def save_predictive_information(self):
+
+        tpm = self.brain.tpm
+        shp = tpm.shape
+        # chacking that tpm is in state by state
+        if not len(shp) == 2:
+            tpm = pyphi.convert.to_2dimensional(tpm)
+            tpm = pyphi.convert.state_by_node2state_by_state(tpm)
+        if len(shp) == 2 and not shp[0] == shp[1]:
+            tpm = pyphi.convert.state_by_node2state_by_state(tpm)
+
+        self.predictive_information = predictive_information(tpm)
 
     def save_system_irreducibility_analysis(self):
-        '''
-
-            Inputs:
-
-            Outputs:
-        '''
-
-        sias = {}
-        for s in self.unique_states:
-            sia = pyphi.compute.complexes(self.brain,s)
-            if len(sia)==0:
-                sias.update({state2num(s) : None})
-            else:
-                sias.update({state2num(s) : sia})
-        self.sias = sias
-
+        system_irreducibility_analysis(self)
 
     def save_major_complex(self):
-        '''
-
-            Inputs:
-
-            Outputs:
-        '''
-
-        MCs = {}
-        n_states = len(self.unique_states)
-        n = 0
-        for s in self.unique_states:
-            #print('Finding MC for state number {} out of {} unique states'.format(n,n_states))
-            n+=1
-
-            MC = pyphi.compute.major_complex(self.brain,s)
-            if MC.phi==0:
-                MCs.update({state2num(s) : None})
-            else:
-                MCs.update({state2num(s) : MC})
-        self.MCs = MCs
-
+        major_complex(self)
 
     def save_phi_from_MCs(self):
-        '''
+        phi_from_MCs(self)
 
-            Inputs:
+    def save_entropy_of_cause_repertoires(self):
+        ss_tpm = pyphi.convert.state_by_node2state_by_state(pyphi.convert.to_2dimensional(self.brain.tpm))
+        self.entropy_of_casue_repertoires = entropy_of_cause_repertoires(ss_tpm)
 
-            Outputs:
-        '''
-
-        phis = []
-        for s in self.unique_states:
-
-            if self.MCs[state2num(s)] == None:
-                phis.append(0)
-            else:
-                phis.append(self.MCs[state2num(s)].phi)
-        self.phis = phis
 
 
     def plot_brain(self, state=None, ax=None):
@@ -522,12 +521,6 @@ class Animat:
         '''
         ac_plot_brain(self.brain.cm, self.brain_graph, state, ax)
 
-def create_animat(run, agent, tpm, cm, brain_activity):
-
-    animat = Animat({})
-    animat.saveBrain(tpm, cm)
-    animat.saveBrainActivity(activity)
-    return animat
 
 class Block:
     '''
